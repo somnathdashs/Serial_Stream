@@ -8,15 +8,19 @@ plugins {
 android {
     namespace = "com.sddev.serial_stream"
     compileSdk = 35
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = "28.1.13356709"
+    defaultConfig {
+        multiDexEnabled true
+    }
 
     compileOptions {
+        coreLibraryDesugaringEnabled  true
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_1_8
+        jvmTarget = "1.8"
     }
 
     defaultConfig {
@@ -37,6 +41,16 @@ android {
 flutter {
     source = "../.."
 }
+
+
+
+dependencies {
+    implementation 'androidx.multidex:multidex:2.0.1' // Correct modern multidex
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
+    implementation 'androidx.work:work-runtime-ktx:2.9.0'
+}
+
 
 // ✅ Firebase plugin required to read google-services.json
 apply plugin: 'com.google.gms.google-services'

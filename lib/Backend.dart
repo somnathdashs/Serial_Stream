@@ -109,11 +109,9 @@ class Backend {
             builder: (context) => ServerProblemScreen(),
           ),
         );
-        print("Failed to load page. Status code: ${res.statusCode}");
       }
       return res;
     } catch (e) {
-      print("Error during HTTP request: $e");
       return http.Response("", 404);
     }
   }
@@ -179,7 +177,7 @@ class Backend {
         imageUrl = TVSearchRes;
       }
     } catch (e) {
-      print("Error extracting image URL: $e");
+      // Error extracting image URL
     }
 
     return imageUrl;
@@ -223,13 +221,12 @@ class Backend {
           }
         }
       } else {
-        print("Failed to load image search. Status: ${response.statusCode}");
+        // Failed to load image search
       }
     } catch (e) {
       navigatorKey.currentState!.pushReplacement(
         MaterialPageRoute(builder: (context) => const NoInternetScreen()),
       );
-      print('Error scraping image: $e');
     }
     return "https://parinamlaw.com/wp-content/themes/lawcounsel/images/no-image/No-Image-Found-400x264.png";
   }
@@ -239,10 +236,8 @@ class Backend {
     var cachceData =
         await Localstorage.getData(Localstorage.ImagesUrls) ?? "{}";
     cachceData = jsonDecode(cachceData);
-    print(cachceData);
-    print(show);
+    
     if (cachceData.keys.contains(show)) {
-      print("catch:" + cachceData[show]);
       return cachceData[show];
     }
     var Img1 = await ProImageExtracter(show);
@@ -255,13 +250,10 @@ class Backend {
     cachceData[show] = ImageUrl;
     Localstorage.setData(Localstorage.ImagesUrls, jsonEncode(cachceData));
 
-    print("Fresh Load:" + (ImageUrl ?? ""));
-
     return ImageUrl;
   }
 
   static Future<List> fetchEpisodes(String showurl) async {
-    print(showurl);
     List<Map<String, String>> results = [];
     List<Map<String, dynamic>> pagintitation = [];
 
@@ -347,10 +339,10 @@ class Backend {
           }
         }
       } else {
-        print("Error fetching page. Status code: ${response.statusCode}");
+        // Error fetching page
       }
     } catch (e) {
-      print("Error during parsing: $e");
+      // Error during parsing
     }
 
     return pages;
@@ -361,7 +353,6 @@ class Backend {
     try {
       http.Response response = await fetchHTMLdata(pageUrl, Header: hEader);
       if (response.statusCode != 200) {
-      print("Failed to fetch page. Status code: ${response.statusCode}");
       return null;
       }
       final document = parser.parse(response.body);
@@ -375,7 +366,7 @@ class Backend {
 
       return iframeSrcElements[0];
     } catch (e) {
-      print("Error extracting iframe HTML elements: $e");
+      // Error extracting iframe HTML elements
     }
 
     return null;
@@ -387,7 +378,6 @@ class Backend {
       http.Response response =
           await fetchHTMLdata(WatchPageUrl, Header: hEader);
       if (response.statusCode != 200) {
-        print("Failed to fetch page. Status code: ${response.statusCode}");
         return [];
       }
       final document = parser.parse(response.body);
@@ -407,7 +397,7 @@ class Backend {
         return urls;
       }
     } catch (e) {
-      print("Error extracting entry content URLs: $e");
+      // Error extracting entry content URLs
     }
 
     return [];
@@ -459,7 +449,6 @@ class Backend {
           return extractWebSeriseData();
         }
         trys = 0;
-        print("Failed to load page. Status code: ${response.statusCode}");
         return [];
       }
     } catch (e) {
@@ -538,7 +527,6 @@ class Backend {
         return {"status": false, "data": {}};
       }
     } catch (e) {
-      print("Error during HTTP request: $e");
       return {"status": false, "data": {}};
     }
   }

@@ -68,7 +68,6 @@ class _PlayerState extends State<WebPlayer> {
     controller.setNavigationDelegate(
       NavigationDelegate(
         onNavigationRequest: (NavigationRequest request) {
-          print(request.url);
           setState(() => counter++);
 
           if (counter < 2) {
@@ -98,7 +97,6 @@ class _PlayerState extends State<WebPlayer> {
           if (extractediframe.toString().isNotEmpty) {
             setState(() {
               iframeSrc = extractediframe.toString();
-              print(iframeSrc);
             });
           }
         },
@@ -237,8 +235,6 @@ class _PlayerState extends State<WebPlayer> {
                   widget.epishodesQueue.sublist(idx + 1),
                   widget.channel,
                 ]);
-          } else {
-            print("No URL found for this episode.");
           }
         },
         child: Card(

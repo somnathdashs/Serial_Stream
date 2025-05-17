@@ -83,7 +83,6 @@ class VKPrimeExtractor {
 
       var videoUrl = await controller.evaluateJavascript(
           source: "document.querySelector('video')?.src;");
-      print("Extracted Video URL: $videoUrl");
 
       if (videoUrl != null && videoUrl.toString().startsWith('http')) {
         final prefs = await SharedPreferences.getInstance();

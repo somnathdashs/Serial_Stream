@@ -17,8 +17,10 @@ import 'package:serial_stream/Background.dart';
 import 'package:serial_stream/LocalStorage.dart';
 import 'package:serial_stream/Screens/NoInternetScreen.dart';
 import 'package:serial_stream/Variable.dart';
+import 'package:serial_stream/main.dart';
 import 'package:serial_stream/pushNotify.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({
@@ -54,7 +56,9 @@ class _MyHomePageState extends State<MyHomePage>
     _subscription = _connectivity.onConnectivityChanged.listen(
       updateConnectionStatus,
     );
+    print("isAdmin: $isAdmin");
     checkAppUpdateWithQuery(context);
+
     _tabController = TabController(length: Channels.length, vsync: this);
     _tabController.addListener(() {
       if (_tabController.indexIsChanging) {
@@ -74,7 +78,6 @@ class _MyHomePageState extends State<MyHomePage>
             isloadiing = false; // Set loading to false when data is fetched
           });
         }).catchError((error) {
-          print("Error fetching shows: $error");
           setState(() {
             isloadiing = false; // Set loading to false even on error
           });
@@ -90,7 +93,6 @@ class _MyHomePageState extends State<MyHomePage>
         isloadiing = false; // Set loading to false when data is fetched
       });
     }).catchError((error) {
-      print("Error fetching shows: $error");
       setState(() {
         isloadiing = false; // Set loading to false even on error
       });
@@ -107,7 +109,6 @@ class _MyHomePageState extends State<MyHomePage>
           isloadiing = false; // Set loading to false when data is fetched
         });
       }).catchError((error) {
-        print("Error fetching shows: $error");
         setState(() {
           isloadiing = false; // Set loading to false even on error
         });
@@ -121,6 +122,28 @@ class _MyHomePageState extends State<MyHomePage>
     final File screenshotFile = File(screenshotFilePath);
     await screenshotFile.writeAsBytes(feedbackScreenshot);
     return screenshotFilePath;
+  }
+
+  Widget _buildSocialButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onPressed,
+  }) {
+    return ElevatedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon),
+      label: Text(label),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: color,
+        foregroundColor: Colors.white,
+        padding: EdgeInsets.symmetric(vertical: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        elevation: 2,
+      ),
+    );
   }
 
   Widget _buildTab(String title, int index) {
@@ -145,6 +168,7 @@ class _MyHomePageState extends State<MyHomePage>
 
   @override
   Widget build(BuildContext context) {
+    print("isAdmin: $isAdmin");
     // checkAppUpdateWithQuery(context);
     return Scaffold(
         appBar: AppBar(
@@ -195,6 +219,13 @@ class _MyHomePageState extends State<MyHomePage>
                     )
                   ],
                 ),
+              ),
+              ListTile(
+                leading: Icon(Icons.download_rounded),
+                title: Text("Downloaded Videos"),
+                onTap: () {
+                  Navigator.pushNamed(context, DownloadedVideoScreenRoute);
+                },
               ),
               ListTile(
                 leading: Icon(Icons.favorite),
@@ -250,6 +281,44 @@ class _MyHomePageState extends State<MyHomePage>
                   // Handle About tap
                 },
               ),
+              SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.all(8.0),
+                height: 80,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _buildSocialButton(
+                        icon: Icons.telegram,
+                        label: 'Telegram',
+                        color: Colors.blue,
+                        onPressed: () {
+                          launchUrl(
+                            Uri.parse("https://t.me/serial_stream"),
+                            mode: LaunchMode.externalApplication,
+                          );
+                        },
+                      ),
+                    ),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: _buildSocialButton(
+                        icon: Icons.facebook,
+                        label: 'Facebook',
+                        color: Colors.indigo.shade700,
+                        onPressed: () {
+                          launchUrl(
+                            Uri.parse(
+                                "https://www.facebook.com/profile.php?id=61573995827396"),
+                            mode: LaunchMode.externalApplication,
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(height: 10),
             ],
           ),
         ),
@@ -324,7 +393,6 @@ class _MyHomePageState extends State<MyHomePage>
                                       isloadiing = false;
                                     });
                                   }).catchError((error) {
-                                    print("Error fetching shows: $error");
                                     setState(() {
                                       isloadiing = false;
                                     });
@@ -411,7 +479,6 @@ class _MyHomePageState extends State<MyHomePage>
                         Current_Channel,
                       ),
                       builder: (context, snapshot) {
-                        // print(snapshot.data);
                         if (snapshot.connectionState ==
                             ConnectionState.waiting) {
                           return Container(
@@ -433,8 +500,7 @@ class _MyHomePageState extends State<MyHomePage>
                           );
                         } else {
                           return CachedNetworkImage(
-                                imageUrl: 
-                            snapshot.data!,
+                            imageUrl: snapshot.data!,
                             fit: BoxFit.cover,
                             height: 150,
                             width: double.infinity,
@@ -503,8 +569,7 @@ class _MyHomePageState extends State<MyHomePage>
                                 Radius.circular(30),
                               ),
                               child: CachedNetworkImage(
-                                imageUrl: 
-                                snapshot.data!,
+                                imageUrl: snapshot.data!,
                                 fit: BoxFit.fill,
                                 height: 32,
                                 width: 32,

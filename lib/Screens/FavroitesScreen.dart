@@ -126,13 +126,12 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
         // Convert the JSON string to a Map<String, dynamic>
         show = jsonDecode(_show);
       } catch (e) {
-        print("Error decoding JSON: $e");
+        // Error decoding JSON
       }
     } else {
       return const Center(child: Text("Error decoding JSON"));
     }
-    print(show);
-    print(show.runtimeType);
+    
     bool isCompleted = show["url"]?.contains("complete") ?? false;
     String Current_Channel = show["channel"] ?? "Unknown Channel";
     return GestureDetector(

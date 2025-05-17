@@ -33,3 +33,5 @@ const String FavScreenRoute = "/FavScreen";
 const String MoreWSScreenRoute = "/MoreWSScreen";
 const String helpScreenRoute = "/HelpScreen";
 const String AboutScreenRoute = "/AboutScreen";
+const String DownloadedVideoScreenRoute = "/DownloadedVideoScreen";
+const String VerifyScreenRoute = "/vs";

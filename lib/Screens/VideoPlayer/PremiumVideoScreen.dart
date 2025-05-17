@@ -1,10 +1,14 @@
 import 'package:better_player_plus/better_player_plus.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:chewie/chewie.dart';
+import 'package:flutter_file_downloader/flutter_file_downloader.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:serial_stream/Background.dart';
 import 'package:serial_stream/Variable.dart';
 import 'package:video_player/video_player.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 GlobalKey _betterPlayerKey = GlobalKey();
 
@@ -27,7 +31,7 @@ class PremiumVideoScreen extends StatefulWidget {
   _PremiumVideoScreenState createState() => _PremiumVideoScreenState();
 }
 
-class _PremiumVideoScreenState extends State<PremiumVideoScreen> {
+class _PremiumVideoScreenState extends State<PremiumVideoScreen> with WidgetsBindingObserver {
   late BetterPlayerController _betterPlayerController;
   String EpeDate = "";
   bool AutoPlay = true;
@@ -35,6 +39,12 @@ class _PremiumVideoScreenState extends State<PremiumVideoScreen> {
   @override
   void initState() {
     super.initState();
+    // Register observer for app lifecycle changes
+    WidgetsBinding.instance.addObserver(this);
+    
+    // Keep screen awake while video is playing
+    WakelockPlus.enable();
+    
     if (widget.epishodeName.isNotEmpty) {
       // Extract date from the title
       final dateRegex = RegExp(
@@ -87,7 +97,17 @@ class _PremiumVideoScreenState extends State<PremiumVideoScreen> {
           },
           autoPlay: true,
           autoDetectFullscreenDeviceOrientation: true,
+          deviceOrientationsAfterFullScreen: [
+            DeviceOrientation.portraitUp,
+          ],
+          allowedScreenSleep: false, // Prevent screen from sleeping
+          handleLifecycle: true, // Handle app lifecycle events
           controlsConfiguration: BetterPlayerControlsConfiguration(
+            enableSkips: true,
+            enableFullscreen: true,
+            enablePlayPause: true,
+            enableMute: true,
+            enableProgressText: true,
             overflowMenuCustomItems: [
               BetterPlayerOverflowMenuItem(
                 Icons.picture_in_picture_alt_rounded,
@@ -120,11 +140,51 @@ class _PremiumVideoScreenState extends State<PremiumVideoScreen> {
                     ),
                   ),
                 );
-              })
+              }),
+              // Download video to app temp folder
+              BetterPlayerOverflowMenuItem(
+                  CupertinoIcons.download_circle, "Download Video", () {
+                FileDownloader.downloadFile(
+                  url: widget.VideoUrl,
+                  name: widget.epishodeName,
+                  downloadDestination: DownloadDestinations.appFiles,
+                  notificationType: NotificationType.progressOnly,
+                  onDownloadCompleted: (String path) {
+                    // Show a snackbar to notify the user
+                    NotificationService.showNotification(widget.epishodeName, "Download completed", widget.showImageUrl,null);
+                  },
+                );
+              }),
             ],
           ),
         ),
         betterPlayerDataSource: betterPlayerDataSource);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // Handle app lifecycle states for better compatibility
+    if (state == AppLifecycleState.resumed) {
+      // App is visible - ensure wakelock is enabled
+      WakelockPlus.enable();
+    } else if (state == AppLifecycleState.paused) {
+      // App is not visible - can release wakelock if needed
+      if (_betterPlayerController.isVideoInitialized() ?? false) {
+        if (!(_betterPlayerController.isPlaying() ?? false)) {
+          WakelockPlus.disable();
+        }
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    // Release wakelock when screen is disposed
+    WakelockPlus.disable();
+    _betterPlayerController.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   @override
@@ -147,35 +207,37 @@ class _PremiumVideoScreenState extends State<PremiumVideoScreen> {
                 ],
               )),
         ),
-        body: Column(
-          children: [
-            AspectRatio(
-              aspectRatio: 16 / 9,
-              child: BetterPlayer(
-                key: _betterPlayerKey,
-                controller: _betterPlayerController,
+        body: SafeArea(
+          child: Column(
+            children: [
+              AspectRatio(
+                aspectRatio: 16 / 9,
+                child: BetterPlayer(
+                  key: _betterPlayerKey,
+                  controller: _betterPlayerController,
+                ),
               ),
-            ),
-            const SizedBox(
-              height: 70,
-            ),
-            const Text("Episodes Queues",
-                textAlign: TextAlign.start,
-                style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black)),
-            const SizedBox(
-              height: 30,
-            ),
-            Expanded(
-              child: ListView.builder(
-                  itemCount: widget.epishodesQueue.length,
-                  itemBuilder: (context, index) {
-                    return _buildShowCard(widget.epishodesQueue[index], index);
-                  }),
-            )
-          ],
+              const SizedBox(
+                height: 70,
+              ),
+              const Text("Episodes Queues",
+                  textAlign: TextAlign.start,
+                  style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black)),
+              const SizedBox(
+                height: 30,
+              ),
+              Expanded(
+                child: ListView.builder(
+                    itemCount: widget.epishodesQueue.length,
+                    itemBuilder: (context, index) {
+                      return _buildShowCard(widget.epishodesQueue[index], index);
+                    }),
+              )
+            ],
+          ),
         ));
   }
 
@@ -191,8 +253,6 @@ class _PremiumVideoScreenState extends State<PremiumVideoScreen> {
                   widget.epishodesQueue.sublist(idx + 1),
                   widget.channel,
                 ]);
-          } else {
-            print("No URL found for this episode.");
           }
         },
         child: Card(

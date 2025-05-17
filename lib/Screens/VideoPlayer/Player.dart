@@ -76,7 +76,7 @@ class Player extends StatefulWidget {
 
       await extractor.start();
     } catch (e) {
-      print("Error loading video: $e");
+      // Error loading video
     }
   }
 
@@ -181,7 +181,6 @@ class _PlayerState extends State<Player> {
 
       await extractor.start();
     } catch (e) {
-      print("Error loading video: $e");
       setState(() {
         showRetry = true;
         showWebViewOption = true;

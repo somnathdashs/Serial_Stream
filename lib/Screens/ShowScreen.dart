@@ -70,9 +70,7 @@ class _ShowscreenState extends State<Showscreen> {
       setState(() {
         isloading = false; // Set loading to false when data is fetched
       });
-      print(value);
     }).catchError((error) {
-      print("Error fetching shows: $error");
       setState(() {
         isloading = false; // Set loading to false even on error
       });
@@ -91,7 +89,6 @@ class _ShowscreenState extends State<Showscreen> {
         isloading = false;
       });
     }).catchError((error) {
-      print("Error fetching episodes: $error");
       setState(() {
         isloading = false;
       });

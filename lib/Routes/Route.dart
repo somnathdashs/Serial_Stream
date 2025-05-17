@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:serial_stream/Screens/AboutScreen.dart';
+import 'package:serial_stream/Screens/DownloadedVideoScreen.dart';
 import 'package:serial_stream/Screens/FavroitesScreen.dart';
 import 'package:serial_stream/Screens/HelpScreen.dart';
 import 'package:serial_stream/Screens/Home.dart';
 import 'package:serial_stream/Screens/MoreWS_SCREEN.dart';
+import 'package:serial_stream/Screens/VerifyScreen.dart';
 import 'package:serial_stream/Screens/VideoPlayer/Player.dart';
 import 'package:serial_stream/Screens/ShowScreen.dart';
 import 'package:serial_stream/Variable.dart';
@@ -11,6 +13,8 @@ import 'package:serial_stream/Variable.dart';
 class AppRoutes {
   static Route<dynamic> generateRoute(RouteSettings settings) {
     switch (settings.name) {
+      case VerifyScreenRoute:
+        return MaterialPageRoute(builder: (_) => VerifyScreen());
       case HomeScreenRoute:
         return MaterialPageRoute(builder: (_) => MyHomePage());
       case EpisodesScreenRoute:
@@ -64,6 +68,8 @@ class AppRoutes {
         return MaterialPageRoute(builder: (context) => HelpScreen());
       case AboutScreenRoute:
         return MaterialPageRoute(builder: (context) => AboutPage());
+      case DownloadedVideoScreenRoute:
+        return MaterialPageRoute(builder: (context) => DownloadedVideoScreen());
       default:
         return MaterialPageRoute(
           builder: (_) => Scaffold(

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Serial Stream App Link Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #2c3e50;
+        }
+        .button {
+            display: inline-block;
+            background-color: #3498db;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .button:hover {
+            background-color: #2980b9;
+        }
+        .section {
+            margin: 30px 0;
+            padding: 20px;
+            border: 1px solid #eee;
+            border-radius: 5px;
+        }
+        code {
+            background-color: #f8f8f8;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>Serial Stream App Link Test</h1>
+    
+    <div class="section">
+        <h2>Verify Account Using Custom Scheme</h2>
+        <p>Click the button below to verify your account using the custom scheme:</p>
+        <a href="serialstream://verify=true" class="button">Verify with Custom Scheme</a>
+    </div>
+    
+    <div class="section">
+        <h2>Verify Account Using HTTPS URL</h2>
+        <p>Click the button below to verify your account using the HTTPS URL:</p>
+        <a href="https://serial.stream/verify/?v=true" class="button">Verify with HTTPS</a>
+    </div>
+    
+    <div class="section">
+        <h2>Verify Account Using Special Format</h2>
+        <p>Click the button below to verify your account using the special URL format:</p>
+        <a href="@https://serial.stream/verify/?v=true" class="button">Verify with Special Format</a>
+    </div>
+    
+    <div class="section">
+        <h2>Testing Instructions</h2>
+        <ol>
+            <li>Make sure you have the Serial Stream app installed on your device</li>
+            <li>Click one of the buttons above</li>
+            <li>The app should open and show a verification success message</li>
+        </ol>
+    </div>
+    
+    <div class="section">
+        <h2>Alternative Testing Methods</h2>
+        <h3>For Android:</h3>
+        <p>Run these ADB commands:</p>
+        <code>adb shell am start -W -a android.intent.action.VIEW -c android.intent.category.BROWSABLE -d "serialstream://verify=true" com.sddev.serial_stream</code>
+        <br><br>
+        <code>adb shell am start -W -a android.intent.action.VIEW -c android.intent.category.BROWSABLE -d "https://serial.stream/verify/?v=true" com.sddev.serial_stream</code>
+        <br><br>
+        <code>adb shell am start -W -a android.intent.action.VIEW -c android.intent.category.BROWSABLE -d "@https://serial.stream/verify/?v=true" com.sddev.serial_stream</code>
+        
+        <h3>For iOS:</h3>
+        <p>Run these commands with the iOS Simulator:</p>
+        <code>/usr/bin/xcrun simctl openurl booted "serialstream://verify=true"</code>
+        <br><br>
+        <code>/usr/bin/xcrun simctl openurl booted "https://serial.stream/verify/?v=true"</code>
+        <br><br>
+        <code>/usr/bin/xcrun simctl openurl booted "@https://serial.stream/verify/?v=true"</code>
+    </div>
+</body>
+</html> 

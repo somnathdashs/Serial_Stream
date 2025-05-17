@@ -5,7 +5,7 @@ import 'package:serial_stream/LocalStorage.dart';
 import 'package:serial_stream/pushNotify.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:url_launcher/url_launcher_string.dart';
-import 'package:workmanager/workmanager.dart';
+// import 'package:workmanager/workmanager.dart';
 
 class AboutPage extends StatefulWidget {
   const AboutPage({super.key});
@@ -142,6 +142,19 @@ class _AboutPageState extends State<AboutPage> {
                               content: Text('Cache cleared successfully.')),
                         );
                       }
+                    },
+                  ),
+                  _buildCardItem(
+                    context,
+                    icon: Icons.cached_rounded,
+                    title: 'Clear Server key',
+                    subtitle: 'Clear server key, and regenerate another.',
+                    onTap: () async {
+                      Localstorage.clearData(Localstorage.LastVerifyDate);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content: Text('Server key cleared successfully.')),
+                      );
                     },
                   ),
                   _buildCardItem(

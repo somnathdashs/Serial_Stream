@@ -67,7 +67,7 @@ class _MoreWSScreenState extends State<MoreWSScreen>
         }
       });
     }).catchError((error) {
-      print("Error fetching data: $error");
+      // Error fetching data
     });
   }
 
@@ -140,7 +140,6 @@ class _MoreWSScreenState extends State<MoreWSScreen>
                       controller: _tabController,
                       isScrollable: true,
                       tabs: List.generate(WebSeriseData.length, (index) {
-                        print(WebSeriseData[index]);
                         return _buildTab(
                             WebSeriseData[index]["channel_name"] ?? "", index);
                       }),
@@ -213,8 +212,6 @@ class _MoreWSScreenState extends State<MoreWSScreen>
                                                         isloadiing = false;
                                                       });
                                                     }).catchError((error) {
-                                                      print(
-                                                          "Error fetching shows: $error");
                                                       setState(() {
                                                         isloadiing = false;
                                                       });

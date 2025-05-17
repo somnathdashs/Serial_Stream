@@ -6,7 +6,7 @@ import 'package:serial_stream/LocalStorage.dart';
 import 'package:serial_stream/Screens/VideoPlayer/Player.dart';
 import 'package:serial_stream/Variable.dart';
 import 'package:serial_stream/main.dart';
-import 'package:workmanager/workmanager.dart';
+// import 'package:workmanager/workmanager.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
@@ -15,30 +15,40 @@ class NotificationService {
   static final _notificationsPlugin = FlutterLocalNotificationsPlugin();
 
   static Future<void> init() async {
-    const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+    try {
+      const AndroidInitializationSettings initializationSettingsAndroid =
+          AndroidInitializationSettings('@mipmap/ic_launcher');
 
-    final InitializationSettings initializationSettings =
-        InitializationSettings(android: initializationSettingsAndroid);
+      final InitializationSettings initializationSettings =
+          InitializationSettings(android: initializationSettingsAndroid);
 
-    await _notificationsPlugin.initialize(
-      initializationSettings,
-      onDidReceiveNotificationResponse: (NotificationResponse response) {
-        if (response.payload != null) {
-          var data = jsonDecode(response.payload!);
-          navigatorKey.currentState!.pushNamed(
-            PlayerScreenRoute,
-            arguments: [
-              data["url"],
-              data["epishodeName"],
-              data["showImageUrl"],
-              data["epishodesQueue"],
-              data["channel"]
-            ],
-          );
-        }
-      },
-    );
+      await _notificationsPlugin.initialize(
+        initializationSettings,
+        onDidReceiveNotificationResponse: (NotificationResponse response) {
+          try {
+            if (response.payload != null) {
+              var data = jsonDecode(response.payload!);
+              navigatorKey.currentState!.pushNamed(
+                PlayerScreenRoute,
+                arguments: [
+                  data["url"],
+                  data["epishodeName"],
+                  data["showImageUrl"],
+                  data["epishodesQueue"],
+                  data["channel"]
+                ],
+              );
+            }
+          } catch (e) {
+            print("Error processing notification response: $e");
+          }
+        },
+      );
+    } catch (e) {
+      print("Error initializing notifications: $e");
+      // Rethrow to let caller know initialization failed
+      rethrow;
+    }
   }
 
   static Future<void> showDebugNotification(String title, String body) async {
@@ -64,14 +74,17 @@ class NotificationService {
   }
 
   static Future<void> showNotification(
-      String title, String body, String ThumbnailUrl, String Channel_url,
+      String title, String body, String ThumbnailUrl, String? Channel_url,
       {payload}) async {
     var thumimage = await http.readBytes(
       Uri.parse(ThumbnailUrl),
     );
-    var channelimage = await http.readBytes(
-      Uri.parse(Channel_url),
-    );
+    Uint8List? channelimage;
+    if (Channel_url!=null){
+      channelimage = await http.readBytes(
+        Uri.parse(Channel_url),
+      );
+    }
     AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
       'SUB_CHANNEL',
       'Subscribe channel',
@@ -82,7 +95,7 @@ class NotificationService {
       playSound: true,
       styleInformation: _buildBigPictureStyleInformation(
           title, body, thumimage, channelimage),
-      largeIcon: ByteArrayAndroidBitmap(channelimage),
+      largeIcon: channelimage!=null ? ByteArrayAndroidBitmap(channelimage) : FilePathAndroidBitmap('asserts/logo.png'),
     );
 
     NotificationDetails platformDetails = NotificationDetails(
@@ -101,11 +114,11 @@ class NotificationService {
     String title,
     String body,
     Uint8List thumimage,
-    Uint8List channelimage,
+    Uint8List? channelimage,
   ) {
     return BigPictureStyleInformation(
       ByteArrayAndroidBitmap(thumimage),
-      largeIcon: ByteArrayAndroidBitmap(channelimage),
+      largeIcon: channelimage!=null ? ByteArrayAndroidBitmap(channelimage) : FilePathAndroidBitmap('asserts/logo.png'),
       contentTitle: title,
       htmlFormatContentTitle: true,
       summaryText: body,
@@ -164,7 +177,7 @@ Future<void> fetchAndShowNotifications() async {
           if (Not_Notify.contains(data)) {
             Not_Notify.remove(data);
             if (Not_Notify.isNotEmpty) {
-              Workmanager().cancelByUniqueName("fetchNotificationsTask_v1_1");
+              // Workmanager().cancelByUniqueName("fetchNotificationsTask_v1_1");
               await Localstorage.addIsTodayNotify(DateTime.now().toString());
             }
           }
@@ -176,59 +189,60 @@ Future<void> fetchAndShowNotifications() async {
       }
     }
   } catch (e) {
-    print("Error: $e");
+    // Error
   }
 }
 
 /// WorkManager callback dispatcher
+@pragma('vm:entry-point')
 void callbackDispatcher() {
-  Workmanager().executeTask((task, inputData) {
-    return NotificationService.init().then((_) {
-      return fetchAndShowNotifications().then((_) {
-        return Future.value(true);
-      });
-    }).catchError((error) {
-      print("Error in callbackDispatcher: $error");
-      return Future.value(false);
-    });
-  });
+  // Workmanager().executeTask((task, inputData) {
+  //   return NotificationService.init().then((_) {
+  //     return fetchAndShowNotifications().then((_) {
+  //       return Future.value(true);
+  //     });
+  //   }).catchError((error) {
+  //     return Future.value(false);
+  //   });
+  // });
 }
 
 /// Schedule the task dynamically
 void scheduleTaskFor6PM() {
-  final now = DateTime.now();
-
-  // Calculate delay until 6 AM today or tomorrow
-  final startTime = DateTime(now.year, now.month, now.day, 18);
-  final initialDelay = now.isBefore(startTime)
-      ? startTime.difference(now)
-      : startTime.add(Duration(days: 1)).difference(now);
-
-  Workmanager().registerPeriodicTask(
-    "fetchNotificationsTask_v1_1",
-    "fetchAndShowNotifications",
-    frequency: const Duration(hours: 1),
-    initialDelay: initialDelay,
-    constraints: Constraints(
-      networkType: NetworkType.connected,
-    ),
-  );
-
-  // Schedule stop task at 9 PM
-  scheduleStopTask();
+  try {
+    // Empty function since workmanager is disabled
+    print("Background task scheduling disabled");
+    
+    /* 
+    Workmanager().registerPeriodicTask(
+      "fetchNotificationsTask_v1_1",
+      "fetchNotifications",
+      frequency: Duration(hours: 1),
+      constraints: Constraints(
+        networkType: NetworkType.connected,
+      ),
+    );
+    */
+  } catch (e) {
+    print("Error in scheduleTaskFor6PM: $e");
+  }
 }
 
 /// Schedule stop task at 9 PM
 void scheduleStopTask() {
-  final now = DateTime.now();
-  final stopTime = DateTime(now.year, now.month, now.day, 23, 59); // 9 PM
+  try {
+    final now = DateTime.now();
+    final stopTime = DateTime(now.year, now.month, now.day, 23, 59); // 9 PM
 
-  final stopDelay = now.isBefore(stopTime)
-      ? stopTime.difference(now)
-      : Duration(); // If it's already past 9 PM, no delay
+    final stopDelay = now.isBefore(stopTime)
+        ? stopTime.difference(now)
+        : Duration(); // If it's already past 9 PM, no delay
 
-  Future.delayed(stopDelay, () {
-    Workmanager().cancelByUniqueName("fetchNotificationsTask_v1_1");
-    print("Task stopped at 11:59 PM");
-  });
+    Future.delayed(stopDelay, () {
+      // Workmanager().cancelByUniqueName("fetchNotificationsTask_v1_1");
+      print("Background task would be stopped here if enabled");
+    });
+  } catch (e) {
+    print("Error in scheduleStopTask: $e");
+  }
 }

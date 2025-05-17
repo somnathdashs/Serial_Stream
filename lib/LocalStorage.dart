@@ -6,8 +6,9 @@ class Localstorage {
   static const String Subscribe = "Subscribe";
   static const String IsTodayNotify = "IsTodayNotify";
   static const String ImagesUrls = "ImagesUrls";
-  static const String ServerKey = "ServerKey";
   static const String ShowsCacheMemo = "ShowsCacheMemo";
+  static const String LastVerifyDate = "LastVerifyDate";
+  static const String isAdmin = "isAdmin";
 
   static Future<void> setData(String key, dynamic value) async {
     final prefs = await SharedPreferences.getInstance();

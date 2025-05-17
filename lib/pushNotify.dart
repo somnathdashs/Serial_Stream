@@ -19,8 +19,6 @@ Future<void> backgroungMessagingHandeler(RemoteMessage RemoteMessage) async {
   final url = RemoteMessage.data['url'];
   if (url != null) {
     await launchUrl(Uri.parse(url));
-  } else {
-    print('Invalid or missing URL');
   }
 }
 
@@ -28,8 +26,6 @@ void _handleNotificationClick(RemoteMessage message) {
   final url = message.data['url'];
   if (url != null) {
     launchUrl(Uri.parse(url));
-  } else {
-    print('Invalid or missing URL');
   }
 }
 
@@ -38,44 +34,91 @@ class FirebaseApi {
   final _Firebase_in_app_Messaging = FirebaseInAppMessaging.instance;
 
   Future<void> initNotification() async {
-    await _FirebaseMessaging.requestPermission();
-    await _Firebase_in_app_Messaging.app
-        .setAutomaticResourceManagementEnabled(true);
-    final fCMToken = await _FirebaseMessaging.getToken();
-    print("FBTokens:" + fCMToken.toString());
-    FirebaseMessaging.onBackgroundMessage(backgroungMessagingHandeler);
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      _handleNotificationClick(message);
-    });
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      print('Foreground message received: ${message.notification?.title}');
-      _showAwesomeNotification(message);
-    });
-    AwesomeNotifications().setListeners(
-        onActionReceivedMethod: (receivedAction) async {
-      if (receivedAction.payload != null &&
-          receivedAction.payload!['url'] != null) {
-        String url = receivedAction.payload!['url']!;
-        _handleNotificationClick(RemoteMessage(data: {"url": url}));
-      } else if (receivedAction.payload != null &&
-          receivedAction.payload!['apkPath'] != null) {
-        String apkPath = receivedAction.payload!['apkPath']!;
-        OpenFilex.open(apkPath);
+    try {
+      // Request notification permission
+      await _FirebaseMessaging.requestPermission();
+
+      // Enable resource management
+      try {
+        await _Firebase_in_app_Messaging.app
+            .setAutomaticResourceManagementEnabled(true);
+      } catch (e) {
+        print("Error enabling resource management: $e");
+        // Continue execution even if this fails
       }
-    });
+
+      // Get FCM token
+      try {
+        final fCMToken = await _FirebaseMessaging.getToken();
+        print("FCM Token obtained: ${fCMToken?.substring(0, 5)}...");
+      } catch (e) {
+        print("Error getting FCM token: $e");
+        // Continue execution even if token retrieval fails
+      }
+
+      // Set up background message handler
+      try {
+        FirebaseMessaging.onBackgroundMessage(backgroungMessagingHandeler);
+      } catch (e) {
+        print("Error setting background message handler: $e");
+      }
+
+      // Set up foreground message handlers
+      try {
+        FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+          _handleNotificationClick(message);
+        });
+
+        FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+          _showAwesomeNotification(message);
+        });
+      } catch (e) {
+        print("Error setting up message listeners: $e");
+      }
+
+      // Set up awesome notifications
+      try {
+        AwesomeNotifications().setListeners(
+            onActionReceivedMethod: (receivedAction) async {
+          if (receivedAction.payload != null &&
+              receivedAction.payload!['url'] != null) {
+            String url = receivedAction.payload!['url']!;
+            _handleNotificationClick(RemoteMessage(data: {"url": url}));
+          } else if (receivedAction.payload != null &&
+              receivedAction.payload!['apkPath'] != null) {
+            String apkPath = receivedAction.payload!['apkPath']!;
+            try {
+              OpenFilex.open(apkPath);
+            } catch (e) {
+              print("Error opening APK file: $e");
+            }
+          }
+        });
+      } catch (e) {
+        print("Error setting up awesome notifications: $e");
+      }
+    } catch (e) {
+      print("Fatal error initializing notifications: $e");
+      // Rethrow to inform caller of failure
+      rethrow;
+    }
   }
 
   void _showAwesomeNotification(RemoteMessage message) {
-    AwesomeNotifications().createNotification(
-      content: NotificationContent(
-        id: DateTime.now().millisecondsSinceEpoch ~/ 1000, // Unique ID
-        channelKey: 'basic_channel',
-        title: message.notification?.title ?? 'No Title',
-        body: message.notification?.body ?? 'No Body',
-        payload: {'url': message.data["url"] ?? ""},
-        notificationLayout: NotificationLayout.Default,
-      ),
-    );
+    try {
+      AwesomeNotifications().createNotification(
+        content: NotificationContent(
+          id: DateTime.now().millisecondsSinceEpoch ~/ 1000, // Unique ID
+          channelKey: 'basic_channel',
+          title: message.notification?.title ?? 'No Title',
+          body: message.notification?.body ?? 'No Body',
+          payload: {'url': message.data["url"] ?? ""},
+          notificationLayout: NotificationLayout.Default,
+        ),
+      );
+    } catch (e) {
+      print("Error showing notification: $e");
+    }
   }
 }
 
@@ -103,7 +146,6 @@ Future<void> checkAppUpdateWithQuery(BuildContext context,
 
   final snapshot = await versionsCollection.get();
   if (snapshot.docs.isEmpty) return;
-  print("App version: ${snapshot.docs[0].data()}");
 
   final packageInfo = await PackageInfo.fromPlatform();
   final currentVersion = packageInfo.version;
@@ -142,7 +184,7 @@ Future<void> checkAppUpdateWithQuery(BuildContext context,
       );
     }
 
-    if (serverVersion != currentVersion) {
+    if ( serverVersion.compareTo(currentVersion) >= 0) {
       if (notify) {
         await showDialog(
           context: context,
@@ -268,11 +310,9 @@ Future<void> _downloadApkSilentlyWithProgress(String url, File file,
       }
 
       await fileStream.close();
-    } else {
-      print("Failed to download APK: ${request.statusCode}");
     }
   } catch (e) {
-    print("APK download failed: $e");
+    // APK download failed
   }
 }
 
@@ -434,6 +474,6 @@ void _launchURL(String url) async {
   try {
     await OpenFilex.open(url);
   } catch (e) {
-    print("Could not open URL: $e");
+    // Could not open URL
   }
 }
