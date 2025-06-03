@@ -209,6 +209,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
                                 ),
                                 SizedBox(height: 20),
                                 InkWell(
+                                  focusColor: const Color.fromARGB(255, 245, 176, 66),
                                   onTap: () {
                                     launchUrl(
                                         Uri.parse(
@@ -278,9 +279,10 @@ class _VerifyScreenState extends State<VerifyScreen> {
                                           ),
                                         ),
                                         child: InkWell(
+                                          focusColor: Colors.blue.shade400,
                                           onTap: () {
                                             launchUrl(Uri.parse(servers[index]),
-                                                mode: LaunchMode.inAppBrowserView);
+                                                mode: LaunchMode.inAppWebView);
                                           },
                                           borderRadius:
                                               BorderRadius.circular(16),

@@ -16,7 +16,14 @@ Note: Since the app relies on web scraping, there might be occasional failures i
 - Browse TV series and movies
 - Stream content directly in the app
 - User-friendly interface
-- Cross-platform support (Android, Windows)
+- Cross-platform support (Android,Android TV,Window)
+
+## What's New in Update 2.0.0
+
+- **New Device Support:** Now, the app can be smoothly use is any Android TV.
+- **Improved UI Performance:** Faster and more responsive interface
+
+
 
 ## What's New in Update 1.2.0
 

@@ -160,7 +160,7 @@ class _PremiumVideoScreen_OfflineScreenState extends State<PremiumVideoScreen_Of
                 ],
               )),
         ),
-        body: SafeArea(
+        body: SingleChildScrollView(
           child: Column(
             children: [
               AspectRatio(

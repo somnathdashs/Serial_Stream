@@ -170,6 +170,7 @@ class _MyHomePageState extends State<MyHomePage>
   Widget build(BuildContext context) {
     print("isAdmin: $isAdmin");
     // checkAppUpdateWithQuery(context);
+    final screenWidth = MediaQuery.of(context).size.width;
     return Scaffold(
         appBar: AppBar(
           title: Text("SERIAL STREAM"),
@@ -416,11 +417,11 @@ class _MyHomePageState extends State<MyHomePage>
                       : isGridView
                           ? GridView.builder(
                               gridDelegate:
-                                  const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 2,
-                                crossAxisSpacing: 8,
-                                mainAxisSpacing: 8,
-                                childAspectRatio: 0.8,
+                                  SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: (screenWidth >600)? 3:2,
+                                crossAxisSpacing:  10,
+                                mainAxisSpacing: 10,
+                                childAspectRatio: (screenWidth >600)? 1:0.8,
                               ),
                               itemCount: shows.length,
                               itemBuilder: (context, index) {
@@ -441,9 +442,10 @@ class _MyHomePageState extends State<MyHomePage>
   Widget _buildShowCard(show) {
     bool isCompleted = show["url"]?.contains("complete") ?? false;
 
-    return GestureDetector(
-        onTap: () async {
-          Navigator.pushNamed(
+    return InkWell(
+      focusColor: Colors.blue.shade400,
+      onTap: () async {
+        Navigator.pushNamed(
             context,
             EpisodesScreenRoute,
             arguments: [

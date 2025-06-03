@@ -122,6 +122,17 @@ class FirebaseApi {
   }
 }
 
+Future<bool> deleteOldApk() async {
+  final directory = await getExternalStorageDirectory();
+  final apkPath = '${directory!.path}/latest_app.apk';
+  final apkFile = File(apkPath);
+  if (apkFile.existsSync()) {
+    await apkFile.delete();
+    return true;
+  }
+  return false;
+}
+
 Future<void> checkAppUpdateWithQuery(BuildContext context,
     {notify = false}) async {
   if (notify) {
@@ -161,7 +172,11 @@ Future<void> checkAppUpdateWithQuery(BuildContext context,
     if (serverVersion == null || apkUrl == null || lastDateTimestamp == null)
       continue;
 
-    if (serverVersion == currentVersion && notify) {
+    if ((serverVersion.compareTo(currentVersion) == 0)) {
+      await deleteOldApk();
+    }
+
+    if ((serverVersion.compareTo(currentVersion) == 0) && notify) {
       Navigator.pop(context);
 
       await showDialog(
@@ -182,9 +197,10 @@ Future<void> checkAppUpdateWithQuery(BuildContext context,
           );
         },
       );
+      return;
     }
 
-    if ( serverVersion.compareTo(currentVersion) >= 0) {
+    if (serverVersion.compareTo(currentVersion) > 0) {
       if (notify) {
         await showDialog(
           context: context,

@@ -1,0 +1,2 @@
+D:/Flutter Projs/Serial_Stream_and_tv/android/app/.cxx/Debug/4y601560/x86_64/CMakeFiles/edit_cache.dir
+D:/Flutter Projs/Serial_Stream_and_tv/android/app/.cxx/Debug/4y601560/x86_64/CMakeFiles/rebuild_cache.dir

@@ -89,7 +89,9 @@ class _PlayerState extends State<WebPlayer> {
                   iframe.style.height = "100vh";
                   iframe.style.border = "none"; // Optional: remove borders
                   iframe.style.zIndex = "9999";
+                  iframe.click()
                 }
+
                 return iframe;
               })();
               """,
@@ -224,7 +226,8 @@ class _PlayerState extends State<WebPlayer> {
   }
 
   Widget _buildShowCard(Episode, idx) {
-    return GestureDetector(
+    return InkWell(
+      focusColor: Colors.blue.shade400,
         onTap: () async {
           if (Episode["url"] != null) {
             Navigator.pushReplacementNamed(context, PlayerScreenRoute,
