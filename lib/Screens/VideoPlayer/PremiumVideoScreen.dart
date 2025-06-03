@@ -31,7 +31,8 @@ class PremiumVideoScreen extends StatefulWidget {
   _PremiumVideoScreenState createState() => _PremiumVideoScreenState();
 }
 
-class _PremiumVideoScreenState extends State<PremiumVideoScreen> with WidgetsBindingObserver {
+class _PremiumVideoScreenState extends State<PremiumVideoScreen>
+    with WidgetsBindingObserver {
   late BetterPlayerController _betterPlayerController;
   String EpeDate = "";
   bool AutoPlay = true;
@@ -41,10 +42,10 @@ class _PremiumVideoScreenState extends State<PremiumVideoScreen> with WidgetsBin
     super.initState();
     // Register observer for app lifecycle changes
     WidgetsBinding.instance.addObserver(this);
-    
+
     // Keep screen awake while video is playing
     WakelockPlus.enable();
-    
+
     if (widget.epishodeName.isNotEmpty) {
       // Extract date from the title
       final dateRegex = RegExp(
@@ -151,7 +152,8 @@ class _PremiumVideoScreenState extends State<PremiumVideoScreen> with WidgetsBin
                   notificationType: NotificationType.progressOnly,
                   onDownloadCompleted: (String path) {
                     // Show a snackbar to notify the user
-                    NotificationService.showNotification(widget.epishodeName, "Download completed", widget.showImageUrl,null);
+                    NotificationService.showNotification(widget.epishodeName,
+                        "Download completed", widget.showImageUrl, null);
                   },
                 );
               }),
@@ -207,42 +209,48 @@ class _PremiumVideoScreenState extends State<PremiumVideoScreen> with WidgetsBin
                 ],
               )),
         ),
-        body: SafeArea(
-          child: Column(
-            children: [
-              AspectRatio(
-                aspectRatio: 16 / 9,
-                child: BetterPlayer(
-                  key: _betterPlayerKey,
-                  controller: _betterPlayerController,
+        body: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AspectRatio(
+              aspectRatio: 16 / 9,
+              child: BetterPlayer(
+                key: _betterPlayerKey,
+                controller: _betterPlayerController,
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
+                "Episodes Queue",
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black,
                 ),
               ),
-              const SizedBox(
-                height: 70,
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: MediaQuery.of(context).size.height * 0.5, // Adjust height as needed
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: widget.epishodesQueue.length,
+                itemBuilder: (context, index) {
+                  return _buildShowCard(widget.epishodesQueue[index], index);
+                },
               ),
-              const Text("Episodes Queues",
-                  textAlign: TextAlign.start,
-                  style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black)),
-              const SizedBox(
-                height: 30,
-              ),
-              Expanded(
-                child: ListView.builder(
-                    itemCount: widget.epishodesQueue.length,
-                    itemBuilder: (context, index) {
-                      return _buildShowCard(widget.epishodesQueue[index], index);
-                    }),
-              )
-            ],
-          ),
-        ));
-  }
+            ),
+          ],
+        ),
+      ));
+        }
 
   Widget _buildShowCard(Episode, idx) {
-    return GestureDetector(
+    return InkWell(
+        focusColor: Colors.blue.shade400,
         onTap: () async {
           if (Episode["url"] != null) {
             Navigator.pushReplacementNamed(context, PlayerScreenRoute,

@@ -55,6 +55,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.mode +
@@ -97,12 +98,12 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                 child: isGridView
                     ? GridView.builder(
                         gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          crossAxisSpacing: 8,
-                          mainAxisSpacing: 8,
-                          childAspectRatio: 0.8,
-                        ),
+                           SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: (screenWidth >600)? 3:2,
+                                crossAxisSpacing:  10,
+                                mainAxisSpacing: 10,
+                                childAspectRatio: (screenWidth >600)? 1:0.8,
+                              ),
                         itemCount: shows.length,
                         itemBuilder: (context, index) {
                           return _buildShowCard(shows[index]);
@@ -134,7 +135,8 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     
     bool isCompleted = show["url"]?.contains("complete") ?? false;
     String Current_Channel = show["channel"] ?? "Unknown Channel";
-    return GestureDetector(
+    return InkWell(
+        focusColor: Colors.blue.shade400,
         onTap: () async {
           Navigator.pushNamed(
             context,

@@ -244,12 +244,15 @@ class _MoreWSScreenState extends State<MoreWSScreen>
                                                 gridDelegate:
                                                     SliverGridDelegateWithFixedCrossAxisCount(
                                                   crossAxisCount:
-                                                      (screenWidth >= 500)
+                                                      (screenWidth > 600)
                                                           ? 3
                                                           : 2,
-                                                  crossAxisSpacing: 8,
-                                                  mainAxisSpacing: 8,
-                                                  childAspectRatio: 0.8,
+                                                  crossAxisSpacing: 10,
+                                                  mainAxisSpacing: 10,
+                                                  childAspectRatio:
+                                                      (screenWidth > 600)
+                                                          ? 1
+                                                          : 0.8,
                                                 ),
                                                 itemCount: Current_Channel_Shows
                                                     .length,
@@ -278,7 +281,8 @@ class _MoreWSScreenState extends State<MoreWSScreen>
   Widget _buildShowCard(show) {
     bool isCompleted = show["url"]?.contains("complete") ?? false;
 
-    return GestureDetector(
+    return InkWell(
+        focusColor: Colors.blue.shade400,
         onTap: () async {
           Navigator.pushNamed(
             context,
@@ -287,8 +291,7 @@ class _MoreWSScreenState extends State<MoreWSScreen>
               Current_Channel,
               show["link"],
               show["name"],
-              await Backend.scrapeHDImage(show["name"],
-                  Current_Channel ),
+              await Backend.scrapeHDImage(show["name"], Current_Channel),
               isCompleted,
               false
             ],
@@ -335,8 +338,7 @@ class _MoreWSScreenState extends State<MoreWSScreen>
                           );
                         } else {
                           return CachedNetworkImage(
-                                imageUrl: 
-                            snapshot.data!,
+                            imageUrl: snapshot.data!,
                             fit: BoxFit.cover,
                             height: 150,
                             width: double.infinity,
@@ -382,8 +384,7 @@ class _MoreWSScreenState extends State<MoreWSScreen>
                                 Radius.circular(30),
                               ),
                               child: CachedNetworkImage(
-                                imageUrl: 
-                                snapshot.data!,
+                                imageUrl: snapshot.data!,
                                 fit: BoxFit.fill,
                                 height: 32,
                                 width: 32,

@@ -242,13 +242,13 @@ class _PlayerState extends State<Player> {
                       Text("Failed to load premium video.",
                           style: TextStyle(fontSize: 16)),
                       SizedBox(height: 20),
-                      ElevatedButton.icon(
+                      ElevatedButton(
                         onPressed: _loadVideo,
-                        icon: Icon(Icons.refresh, color: Colors.white),
-                        label: Text(
+                        child: Row(children: [Icon(Icons.refresh, color: Colors.white),
+                        SizedBox(width:20), Text(
                           "Try Again",
                           style: TextStyle(color: Colors.white),
-                        ),
+                        )],),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.blueAccent,
                           padding: EdgeInsets.symmetric(

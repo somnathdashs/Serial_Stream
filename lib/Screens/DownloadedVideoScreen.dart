@@ -21,6 +21,8 @@ class _DownloadedVideoScreenState extends State<DownloadedVideoScreen> {
   List<Map<String, dynamic>> _videos = [];
   bool _isLoading = true;
   bool _isGridView = true;
+  bool _isSelectionMode = false;
+  Set<String> _selectedVideos = {};
   final Map<String, List<Map<String, dynamic>>> _groupedVideos = {};
   final Map<String, Widget> _thumbnailCache = {}; // Cache for thumbnails
 
@@ -136,6 +138,90 @@ class _DownloadedVideoScreenState extends State<DownloadedVideoScreen> {
     }
   }
 
+  void _enterSelectionMode(String videoPath) {
+    setState(() {
+      _isSelectionMode = true;
+      _selectedVideos.add(videoPath);
+    });
+  }
+
+  void _exitSelectionMode() {
+    setState(() {
+      _isSelectionMode = false;
+      _selectedVideos.clear();
+    });
+  }
+
+  void _toggleVideoSelection(String videoPath) {
+    setState(() {
+      if (_selectedVideos.contains(videoPath)) {
+        _selectedVideos.remove(videoPath);
+        if (_selectedVideos.isEmpty) {
+          _isSelectionMode = false;
+        }
+      } else {
+        _selectedVideos.add(videoPath);
+      }
+    });
+  }
+
+  void _selectAllVideos() {
+    setState(() {
+      _selectedVideos.clear();
+      for (var video in _videos) {
+        _selectedVideos.add(video['path']);
+      }
+    });
+  }
+
+  Future<void> _deleteSelectedVideos() async {
+    if (_selectedVideos.isEmpty) return;
+
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete Videos'),
+        content: Text('Are you sure you want to delete ${_selectedVideos.length} selected video(s)?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        for (String filePath in _selectedVideos) {
+          final file = File(filePath);
+          if (await file.exists()) {
+            await file.delete();
+            // Clear any cached thumbnails for this video
+            _thumbnailCache.removeWhere((key, value) => key.startsWith('$filePath-'));
+          }
+        }
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${_selectedVideos.length} video(s) deleted successfully')),
+        );
+        
+        _exitSelectionMode();
+        _loadVideos(); // Refresh the list
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error deleting videos: $e')),
+        );
+      }
+    }
+  }
+
   String _formatFileSize(int sizeInBytes) {
     if (sizeInBytes < 1024) {
       return '$sizeInBytes B';
@@ -205,15 +291,19 @@ class _DownloadedVideoScreenState extends State<DownloadedVideoScreen> {
   }
 
   void _playVideo(Map<String, dynamic> video) {
-    Navigator.push(
-      context, 
-      MaterialPageRoute(
-        builder: (context) => PremiumVideoScreen_Offline(
-          videoFilePath: video['path'],
-          epishodeName: video['name'],
+    if (_isSelectionMode) {
+      _toggleVideoSelection(video['path']);
+    } else {
+      Navigator.push(
+        context, 
+        MaterialPageRoute(
+          builder: (context) => PremiumVideoScreen_Offline(
+            videoFilePath: video['path'],
+            epishodeName: video['name'],
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   Widget _buildVideoThumbnail(String videoPath, String videoName) {
@@ -362,73 +452,117 @@ class _DownloadedVideoScreenState extends State<DownloadedVideoScreen> {
   }
 
   Widget _buildGridItem(Map<String, dynamic> video) {
+    final isSelected = _selectedVideos.contains(video['path']);
+    
     return Card(
       elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: isSelected 
+          ? BorderSide(color: Theme.of(context).primaryColor, width: 3)
+          : BorderSide.none,
+      ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
+        focusColor: Colors.blue.shade400,
         onTap: () => _playVideo(video),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        onLongPress: () {
+          if (!_isSelectionMode) {
+            _enterSelectionMode(video['path']);
+          } else {
+            _toggleVideoSelection(video['path']);
+          }
+        },
+        child: Stack(
           children: [
-            AspectRatio(
-              aspectRatio: 16 / 9,
-              child: _buildVideoThumbnail(video['path'], video['name']),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    video['name'],
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  SizedBox(height: 8),
-                  Row(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: _buildVideoThumbnail(video['path'], video['name']),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
-                      SizedBox(width: 4),
                       Text(
-                        video['duration'],
-                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                        video['name'],
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      Spacer(),
-                      Text(
-                        video['size'],
-                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                      SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
+                          SizedBox(width: 4),
+                          Text(
+                            video['duration'],
+                            style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                          ),
+                          Spacer(),
+                          Text(
+                            video['size'],
+                            style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ],
-              ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          video['dateFormatted'],
+                          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                        ),
+                      ),
+                      // if (!_isSelectionMode)
+                      //   IconButton(
+                      //     icon: Icon(Icons.delete, color: Colors.red),
+                      //     onPressed: () => _showDeleteConfirmationDialog(video),
+                      //     iconSize: 20,
+                      //     padding: EdgeInsets.zero,
+                      //     constraints: BoxConstraints(),
+                      //   ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Flexible(
-                    child: Text(
-                      video['dateFormatted'],
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            if (_isSelectionMode)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: isSelected 
+                      ? Theme.of(context).primaryColor 
+                      : Colors.white.withOpacity(0.8),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Theme.of(context).primaryColor,
+                      width: 2,
                     ),
                   ),
-                  IconButton(
-                    icon: Icon(Icons.delete, color: Colors.red),
-                    onPressed: () => _showDeleteConfirmationDialog(video),
-                    iconSize: 20,
-                    padding: EdgeInsets.zero,
-                    constraints: BoxConstraints(),
+                  child: Icon(
+                    isSelected ? Icons.check : null,
+                    color: Colors.white,
+                    size: 20,
                   ),
-                ],
+                  width: 24,
+                  height: 24,
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -436,14 +570,52 @@ class _DownloadedVideoScreenState extends State<DownloadedVideoScreen> {
   }
 
   Widget _buildListItem(Map<String, dynamic> video) {
+    final isSelected = _selectedVideos.contains(video['path']);
+    
     return Card(
       elevation: 3,
       margin: EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: isSelected 
+          ? BorderSide(color: Theme.of(context).primaryColor, width: 3)
+          : BorderSide.none,
+      ),
       child: InkWell(
+        focusColor: Colors.blue.shade400,
         onTap: () => _playVideo(video),
+        onLongPress: () {
+          if (!_isSelectionMode) {
+            _enterSelectionMode(video['path']);
+          } else {
+            _toggleVideoSelection(video['path']);
+          }
+        },
         child: Row(
           children: [
+            if (_isSelectionMode)
+              Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: isSelected 
+                      ? Theme.of(context).primaryColor 
+                      : Colors.white.withOpacity(0.8),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Theme.of(context).primaryColor,
+                      width: 2,
+                    ),
+                  ),
+                  child: Icon(
+                    isSelected ? Icons.check : null,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  width: 24,
+                  height: 24,
+                ),
+              ),
             ClipRRect(
               borderRadius: BorderRadius.only(
                 topLeft: Radius.circular(12),
@@ -497,10 +669,15 @@ class _DownloadedVideoScreenState extends State<DownloadedVideoScreen> {
                 ),
               ),
             ),
-            IconButton(
-              icon: Icon(Icons.delete, color: Colors.red),
-              onPressed: () => _showDeleteConfirmationDialog(video),
-            ),
+            // if (!_isSelectionMode)
+            //   InkWell(
+            //     focusColor: Colors.yellow.shade400,
+            //     child: Padding(
+            //       padding: const EdgeInsets.all(12.0),
+            //       child: Icon(Icons.delete, color: Colors.red),
+            //     ),
+            //     onTap: () => _showDeleteConfirmationDialog(video),
+            //   ),
           ],
         ),
       ),
@@ -565,82 +742,121 @@ class _DownloadedVideoScreenState extends State<DownloadedVideoScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Downloaded Videos'),
-        actions: [
-          IconButton(
-            icon: Icon(_isGridView ? Icons.list : Icons.grid_view),
-            onPressed: () {
-              setState(() {
-                _isGridView = !_isGridView;
-              });
-            },
-            tooltip: _isGridView ? 'List View' : 'Grid View',
-          ),
-          IconButton(
-            icon: Icon(Icons.refresh),
-            onPressed: _loadVideos,
-            tooltip: 'Refresh',
-          ),
-        ],
-      ),
-      body: _isLoading
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text(
-                    'Loading your videos...',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey[700],
-                    ),
-                  ),
-                ],
-              ),
-            )
-          : _videos.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.video_library_outlined,
-                        size: 80,
-                        color: Colors.grey[400],
-                      ),
-                      SizedBox(height: 16),
-                      Text(
-                        'No videos downloaded yet',
-                        style: TextStyle(
-                          fontSize: 18,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        'Downloaded videos will appear here',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[500],
-                        ),
-                      ),
-                      SizedBox(height: 24),
-                      ElevatedButton.icon(
-                        onPressed: _loadVideos,
-                        icon: Icon(Icons.refresh),
-                        label: Text('Refresh'),
-                      ),
-                    ],
-                  ),
-                )
-              : AnimatedSwitcher(
-                  duration: Duration(milliseconds: 300),
-                  child: _buildGroupedVideos(),
+    return WillPopScope(
+      onWillPop: () async {
+        if (_isSelectionMode) {
+          _exitSelectionMode();
+          return false;
+        }
+        return true;
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: _isSelectionMode 
+            ? Text('${_selectedVideos.length} selected')
+            : Text('Downloaded Videos'),
+          leading: _isSelectionMode
+            ? IconButton(
+                icon: Icon(Icons.close),
+                onPressed: _exitSelectionMode,
+              )
+            : null,
+          actions: _isSelectionMode
+            ? [
+                IconButton(
+                  icon: Icon(Icons.select_all),
+                  onPressed: _selectAllVideos,
+                  tooltip: 'Select All',
                 ),
+                IconButton(
+                  icon: Icon(Icons.delete),
+                  onPressed: _selectedVideos.isNotEmpty ? _deleteSelectedVideos : null,
+                  tooltip: 'Delete Selected',
+                ),
+              ]
+            : [
+                IconButton(
+                  icon: Icon(_isGridView ? Icons.list : Icons.grid_view),
+                  onPressed: () {
+                    setState(() {
+                      _isGridView = !_isGridView;
+                    });
+                  },
+                  tooltip: _isGridView ? 'List View' : 'Grid View',
+                ),
+                IconButton(
+                  icon: Icon(Icons.refresh),
+                  onPressed: _loadVideos,
+                  tooltip: 'Refresh',
+                ),
+                IconButton(
+                  icon: Icon(Icons.delete_forever_rounded),
+                  onPressed: (){
+                    setState(() {
+                      _isSelectionMode = true;
+                    });
+                  },
+                  tooltip: 'Select',
+                ),
+              ],
+        ),
+        body: _isLoading
+            ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text(
+                      'Loading your videos...',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.grey[700],
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : _videos.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.video_library_outlined,
+                          size: 80,
+                          color: Colors.grey[400],
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          'No videos downloaded yet',
+                          style: TextStyle(
+                            fontSize: 18,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Downloaded videos will appear here',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[500],
+                          ),
+                        ),
+                        SizedBox(height: 24),
+                        ElevatedButton.icon(
+                          onPressed: _loadVideos,
+                          icon: Icon(Icons.refresh),
+                          label: Text('Refresh'),
+                        ),
+                      ],
+                    ),
+                  )
+                : AnimatedSwitcher(
+                    duration: Duration(milliseconds: 300),
+                    child: _buildGroupedVideos(),
+                  ),
+      ),
     );
   }
 }

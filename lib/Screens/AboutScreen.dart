@@ -166,7 +166,8 @@ class _AboutPageState extends State<AboutPage> {
                         _launchURL('mailto:somnath.dash.2007@gmail.com'),
                   ),
                   const SizedBox(height: 24),
-                  GestureDetector(
+                  InkWell(
+                    focusColor: Colors.blue.shade400,
                     onTap: () {
                       // Handle the tap event
                       launchUrlString("https://buymeacoffee.com/somnathdash/");

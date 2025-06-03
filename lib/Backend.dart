@@ -348,60 +348,60 @@ class Backend {
     return pages;
   }
 
-  static Future<String?> extractIframSRC_from_Webpage(
-      String pageUrl, hEader) async {
-    try {
-      http.Response response = await fetchHTMLdata(pageUrl, Header: hEader);
-      if (response.statusCode != 200) {
-      return null;
-      }
-      final document = parser.parse(response.body);
-
-      // Find all <iframe> elements
-      final iframeElements = document.querySelectorAll('iframe');
-
-      // Extract the 'src' attribute of each <iframe> element
-      final iframeSrcElements =
-        iframeElements.map((iframe) => iframe.attributes['src'] ?? '').toList();
-
-      return iframeSrcElements[0];
-    } catch (e) {
-      // Error extracting iframe HTML elements
-    }
-
-    return null;
-  }
-
-  static Future<List<String>> extractEntryContentUrls(
-      String WatchPageUrl, hEader) async {
-    try {
-      http.Response response =
-          await fetchHTMLdata(WatchPageUrl, Header: hEader);
-      if (response.statusCode != 200) {
-        return [];
-      }
-      final document = parser.parse(response.body);
-      final entryContentDiv = document.querySelector("div.entry_content");
-
-      if (entryContentDiv != null) {
-        final urls = entryContentDiv
-            .querySelectorAll('a[href]')
-            .map((a) => a.attributes['href'] ?? '')
-            .where((href) => href.isNotEmpty)
-            .toList();
-
-        if (urls.length > 5) {
-          urls.removeLast();
+    static Future<String?> extractIframSRC_from_Webpage(
+        String pageUrl, hEader) async {
+      try {
+        http.Response response = await fetchHTMLdata(pageUrl, Header: hEader);
+        if (response.statusCode != 200) {
+        return null;
         }
+        final document = parser.parse(response.body);
 
-        return urls;
+        // Find all <iframe> elements
+        final iframeElements = document.querySelectorAll('iframe');
+
+        // Extract the 'src' attribute of each <iframe> element
+        final iframeSrcElements =
+          iframeElements.map((iframe) => iframe.attributes['src'] ?? '').toList();
+
+        return iframeSrcElements[0];
+      } catch (e) {
+        // Error extracting iframe HTML elements
       }
-    } catch (e) {
-      // Error extracting entry content URLs
+
+      return null;
     }
 
-    return [];
-  }
+    static Future<List<String>> extractEntryContentUrls(
+        String WatchPageUrl, hEader) async {
+      try {
+        http.Response response =
+            await fetchHTMLdata(WatchPageUrl, Header: hEader);
+        if (response.statusCode != 200) {
+          return [];
+        }
+        final document = parser.parse(response.body);
+        final entryContentDiv = document.querySelector("div.entry_content");
+
+        if (entryContentDiv != null) {
+          final urls = entryContentDiv
+              .querySelectorAll('a[href]')
+              .map((a) => a.attributes['href'] ?? '')
+              .where((href) => href.isNotEmpty)
+              .toList();
+
+          if (urls.length > 5) {
+            urls.removeLast();
+          }
+
+          return urls;
+        }
+      } catch (e) {
+        // Error extracting entry content URLs
+      }
+
+      return [];
+    }
 
 // Web series
   static Future<List<Map<String, dynamic>>> extractWebSeriseData() async {

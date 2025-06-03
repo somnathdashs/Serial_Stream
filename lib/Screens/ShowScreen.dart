@@ -343,7 +343,8 @@ class _ShowscreenState extends State<Showscreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: pagintition.map((page) {
-                    return GestureDetector(
+                    return InkWell(
+                      focusColor: Colors.blue.shade400,
                       onTap: page['url'] != null
                           ? () {
                               Current_pg_url = page['url'] ?? Current_pg_url;
