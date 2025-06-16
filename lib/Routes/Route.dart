@@ -8,6 +8,7 @@ import 'package:serial_stream/Screens/MoreWS_SCREEN.dart';
 import 'package:serial_stream/Screens/VerifyScreen.dart';
 import 'package:serial_stream/Screens/VideoPlayer/Player.dart';
 import 'package:serial_stream/Screens/ShowScreen.dart';
+import 'package:serial_stream/Screens/VideoPlayer/ServersList.dart';
 import 'package:serial_stream/Variable.dart';
 
 class AppRoutes {
@@ -36,7 +37,7 @@ class AppRoutes {
                     showcompleted: isCompleted,
                     isSubscriable: isSubscriable));
           }
-        }
+        }      
       case PlayerScreenRoute:
         if (settings.arguments is List) {
           List arguments = settings.arguments as List;
@@ -47,7 +48,7 @@ class AppRoutes {
             List epeQueau = arguments[3] as List;
             String channelName = arguments[4] as String;
             return MaterialPageRoute(
-                builder: (_) => Player(
+                builder: (_) => ServersList(
                       epishodeUrl: showurl,
                       epishodeName: showtitle,
                       showImageUrl: imageurl,

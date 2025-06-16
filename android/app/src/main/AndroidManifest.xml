@@ -46,8 +46,8 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
-            
             <!-- App Links / Deep Links for custom URI scheme -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -56,7 +56,6 @@
                 <!-- Custom URI scheme for serialstream:// links -->
                 <data android:scheme="serialstream" />
             </intent-filter>
-            
             <!-- App Links / Deep Links for HTTPS URLs -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
@@ -67,7 +66,6 @@
                 <!-- Also handle special prefix format -->
                 <data android:scheme="@https" android:host="serial.stream" />
             </intent-filter>
-            
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" android:required="false" />

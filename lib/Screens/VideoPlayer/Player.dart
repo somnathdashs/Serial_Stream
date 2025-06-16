@@ -146,7 +146,6 @@ class _PlayerState extends State<Player> {
 
       if (vkprimeIndex == -1) {
         videoPageUrls = fetchedUrls.sublist(0, 3);
-        _navigateToFallback();
         return;
       }
 
@@ -189,17 +188,7 @@ class _PlayerState extends State<Player> {
     }
   }
 
-  void _navigateToFallback() {
-    Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-            builder: (context) => WebPlayer(
-                epishodeUrl: widget.epishodeUrl,
-                epishodeName: widget.epishodeName,
-                showImageUrl: widget.showImageUrl,
-                epishodesQueue: widget.epishodesQueue,
-                channel: widget.channel)));
-  }
+ 
 
   void _navigateToPlayer(String videoUrl) {
     Navigator.pushReplacement(
@@ -242,29 +231,11 @@ class _PlayerState extends State<Player> {
                       Text("Failed to load premium video.",
                           style: TextStyle(fontSize: 16)),
                       SizedBox(height: 20),
-                      ElevatedButton(
+                      OutlinedButton.icon(
                         onPressed: _loadVideo,
-                        child: Row(children: [Icon(Icons.refresh, color: Colors.white),
-                        SizedBox(width:20), Text(
-                          "Try Again",
-                          style: TextStyle(color: Colors.white),
-                        )],),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blueAccent,
-                          padding: EdgeInsets.symmetric(
-                              horizontal: 24, vertical: 12),
-                        ),
-                      ),
-                      if (showWebViewOption) ...[
-                        SizedBox(height: 12),
-                        Text("or"),
-                        SizedBox(height: 12),
-                        OutlinedButton.icon(
-                          onPressed: () => _navigateToFallback(),
-                          icon: Icon(Icons.open_in_browser),
-                          label: Text("Open in WebView Player"),
-                        )
-                      ]
+                        icon: Icon(Icons.refresh, color: Colors.white),
+                        label: Text("Try Again"),
+                      )
                     ],
                   )
                 : Text("No video available"),

@@ -48,7 +48,7 @@ dependencies {
     implementation 'androidx.multidex:multidex:2.0.1' // Correct modern multidex
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
-    implementation 'androidx.work:work-runtime-ktx:2.9.0'
+    implementation 'androidx.work:work-runtime-ktx:2.9.0'    
 }
 
 

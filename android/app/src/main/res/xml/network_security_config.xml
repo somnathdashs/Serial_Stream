@@ -1,16 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true">
-        <trust-anchors>
-            <certificates src="system" />
-            <certificates src="user" />
-        </trust-anchors>
-    </base-config>
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">desitellybox.to</domain>
-        <domain includeSubdomains="true">google.com</domain>
-        <domain includeSubdomains="true">github.io</domain>
-        <domain includeSubdomains="true">themoviedb.org</domain>
-        <domain includeSubdomains="true">tmdb.org</domain>
+        <domain includeSubdomains="true">business-credits.cc</domain>
+        <domain includeSubdomains="true">tvnation.me</domain>
+        <domain includeSubdomains="true">credits-loan.pw</domain>
     </domain-config>
+     <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

@@ -18,6 +18,12 @@ Note: Since the app relies on web scraping, there might be occasional failures i
 - User-friendly interface
 - Cross-platform support (Android,Android TV,Window)
 
+## What's New in Update 3.0.0
+- **New Server Technique** Now the app fetch video URL from website and play in custome android player. 
+- **Improved UI Performance:** Faster and more responsive interface
+
+
+
 ## What's New in Update 2.0.0
 
 - **New Device Support:** Now, the app can be smoothly use is any Android TV.
