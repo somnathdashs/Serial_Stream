@@ -16,7 +16,12 @@ Note: Since the app relies on web scraping, there might be occasional failures i
 - Browse TV series and movies
 - Stream content directly in the app
 - User-friendly interface
-- Cross-platform support (Android,Android TV,Window)
+- Cross-platform support (Android,Android TV)
+
+## What's New in Update 3.5.0
+- **Bug Free:** No bugs.
+- **Improved Video Player:** Faster and Buffer-free video player.
+- **Enhance UI for Android TV:** Leggy free TV UI.
 
 ## What's New in Update 3.0.0
 - **New Server Technique** Now the app fetch video URL from website and play in custome android player. 
