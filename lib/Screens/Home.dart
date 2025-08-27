@@ -36,7 +36,7 @@ class _MyHomePageState extends State<MyHomePage>
   late TabController _tabController;
   bool isloadiing = true;
   List shows = [];
-  bool isGridView = false;
+  bool isGridView = true;
   String Current_Channel = "";
   late final Connectivity _connectivity;
   late StreamSubscription _subscription;
@@ -52,6 +52,15 @@ class _MyHomePageState extends State<MyHomePage>
   void initState() {
     // TODO: implement initState
     super.initState();
+    Localstorage.getData(Localstorage.isOpened).then((bools) async{
+      print("cont $bools");
+      var isFirstOpen = bools==null?true:false;
+      if (isFirstOpen) {
+        Navigator.pushNamed(context, EditDnsScreenRoute);
+        await Localstorage.updateData(Localstorage.isOpened, "Heklsodjsdf");
+        await Localstorage.setData(Localstorage.isOpened, "Heklsodjsdf");
+      } else {}
+    });
     _connectivity = Connectivity();
     _subscription = _connectivity.onConnectivityChanged.listen(
       updateConnectionStatus,
@@ -221,13 +230,13 @@ class _MyHomePageState extends State<MyHomePage>
                   ],
                 ),
               ),
-              ListTile(
-                leading: Icon(Icons.download_rounded),
-                title: Text("Downloaded Videos"),
-                onTap: () {
-                  Navigator.pushNamed(context, DownloadedVideoScreenRoute);
-                },
-              ),
+              // ListTile(
+              //   leading: Icon(Icons.download_rounded),
+              //   title: Text("Downloaded Videos"),
+              //   onTap: () {
+              //     Navigator.pushNamed(context, DownloadedVideoScreenRoute);
+              //   },
+              // ),
               ListTile(
                 leading: Icon(Icons.favorite),
                 title: Text("Favorites"),
@@ -241,6 +250,16 @@ class _MyHomePageState extends State<MyHomePage>
                 onTap: () {
                   Navigator.pushNamed(context, FavScreenRoute,
                       arguments: "Watch Later");
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.dns),
+                title: Text("How To Change DNS"),
+                onTap: () {
+                  Navigator.pushNamed(
+                    context,
+                    EditDnsScreenRoute,
+                  );
                 },
               ),
               ListTile(
@@ -418,10 +437,10 @@ class _MyHomePageState extends State<MyHomePage>
                           ? GridView.builder(
                               gridDelegate:
                                   SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: (screenWidth >600)? 3:2,
-                                crossAxisSpacing:  10,
+                                crossAxisCount: (screenWidth > 600) ? 3 : 2,
+                                crossAxisSpacing: 10,
                                 mainAxisSpacing: 10,
-                                childAspectRatio: (screenWidth >600)? 1:0.8,
+                                childAspectRatio: (screenWidth > 600) ? 1 : 0.8,
                               ),
                               itemCount: shows.length,
                               itemBuilder: (context, index) {
@@ -443,9 +462,9 @@ class _MyHomePageState extends State<MyHomePage>
     bool isCompleted = show["url"]?.contains("complete") ?? false;
 
     return InkWell(
-      focusColor: Colors.blue.shade400,
-      onTap: () async {
-        Navigator.pushNamed(
+        focusColor: Colors.blue.shade400,
+        onTap: () async {
+          Navigator.pushNamed(
             context,
             EpisodesScreenRoute,
             arguments: [

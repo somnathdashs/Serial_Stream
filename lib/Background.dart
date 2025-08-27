@@ -9,6 +9,7 @@ import 'package:serial_stream/main.dart';
 // import 'package:workmanager/workmanager.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:workmanager/workmanager.dart';
 
 /// Notification service to handle showing notifications
 class NotificationService {
@@ -80,7 +81,7 @@ class NotificationService {
       Uri.parse(ThumbnailUrl),
     );
     Uint8List? channelimage;
-    if (Channel_url!=null){
+    if (Channel_url != null) {
       channelimage = await http.readBytes(
         Uri.parse(Channel_url),
       );
@@ -95,7 +96,9 @@ class NotificationService {
       playSound: true,
       styleInformation: _buildBigPictureStyleInformation(
           title, body, thumimage, channelimage),
-      largeIcon: channelimage!=null ? ByteArrayAndroidBitmap(channelimage) : FilePathAndroidBitmap('asserts/logo.png'),
+      largeIcon: channelimage != null
+          ? ByteArrayAndroidBitmap(channelimage)
+          : FilePathAndroidBitmap('asserts/logo.png'),
     );
 
     NotificationDetails platformDetails = NotificationDetails(
@@ -118,7 +121,9 @@ class NotificationService {
   ) {
     return BigPictureStyleInformation(
       ByteArrayAndroidBitmap(thumimage),
-      largeIcon: channelimage!=null ? ByteArrayAndroidBitmap(channelimage) : FilePathAndroidBitmap('asserts/logo.png'),
+      largeIcon: channelimage != null
+          ? ByteArrayAndroidBitmap(channelimage)
+          : FilePathAndroidBitmap('asserts/logo.png'),
       contentTitle: title,
       htmlFormatContentTitle: true,
       summaryText: body,
@@ -140,10 +145,12 @@ Future<void> fetchAndShowNotifications() async {
 
     var value =
         Not_Notify.isNotEmpty ? List.from(Not_Notify) : List.from(_value);
+    
 
     for (var i = 0; i < value.length; i++) {
       var data = jsonDecode(value[i]);
       var notification = await Backend.fetchNotification(data["url"]);
+      print("HII $notification");
 
       if (notification["status"]) {
         var allEpisodes = notification["all"] as List;
@@ -196,33 +203,36 @@ Future<void> fetchAndShowNotifications() async {
 /// WorkManager callback dispatcher
 @pragma('vm:entry-point')
 void callbackDispatcher() {
-  // Workmanager().executeTask((task, inputData) {
-  //   return NotificationService.init().then((_) {
-  //     return fetchAndShowNotifications().then((_) {
-  //       return Future.value(true);
-  //     });
-  //   }).catchError((error) {
-  //     return Future.value(false);
-  //   });
-  // });
+  Workmanager().executeTask((task, inputData) {
+    return NotificationService.init().then((_) {
+      return fetchAndShowNotifications().then((_) {
+        return Future.value(true);
+      });
+    }).catchError((error) {
+      return Future.value(false);
+    });
+  });
 }
 
 /// Schedule the task dynamically
 void scheduleTaskFor6PM() {
   try {
+    final now = DateTime.now();
+    final startTime = DateTime(now.year, now.month, now.day, 18, 00); // 6 PM
+
+    final startDelay = now.isBefore(startTime)
+        ? startTime.difference(now)
+        // ? Duration()
+        : Duration(); // If it's already past 9 PM, no delay
     // Empty function since workmanager is disabled
-    print("Background task scheduling disabled");
-    
-    /* 
-    Workmanager().registerPeriodicTask(
-      "fetchNotificationsTask_v1_1",
+     Workmanager().registerPeriodicTask(
+      "fetchNotificationsTask_v3",
       "fetchNotifications",
-      frequency: Duration(hours: 1),
+      frequency: startDelay,
       constraints: Constraints(
         networkType: NetworkType.connected,
       ),
     );
-    */
   } catch (e) {
     print("Error in scheduleTaskFor6PM: $e");
   }

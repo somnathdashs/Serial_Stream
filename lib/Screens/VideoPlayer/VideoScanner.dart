@@ -76,6 +76,7 @@ class M3U8WebViewScanner extends StatefulWidget {
 
 class _M3U8WebViewScannerState extends State<M3U8WebViewScanner>
     with SingleTickerProviderStateMixin {
+  HeadlessInAppWebView? headlessWebView;
   InAppWebViewController? webViewController;
   final List<M3U8UrlInfo> detectedUrls = [];
   final List<NetworkRequest> networkRequests = [];
@@ -107,585 +108,67 @@ class _M3U8WebViewScannerState extends State<M3U8WebViewScanner>
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
     );
+
+    headlessWebView = HeadlessInAppWebView(
+      initialUrlRequest: URLRequest(url: WebUri(widget.initialUrl)),
+      initialSettings: InAppWebViewSettings(
+        allowsInlineMediaPlayback: true,
+        mediaPlaybackRequiresUserGesture: false,
+        allowsAirPlayForMediaPlayback: true,
+        allowsPictureInPictureMediaPlayback: true,
+        iframeAllowFullscreen: true,
+        useShouldInterceptRequest: true,
+        javaScriptEnabled: true,
+        domStorageEnabled: true,
+      ),
+      onWebViewCreated: (controller) {
+        webViewController = controller;
+        _setupJavaScriptInterfaces(controller);
+      },
+      onLoadStart: (controller, url) {
+        setState(() {
+          currentUrl = url?.toString() ?? '';
+        });
+        _getCurrentCookies();
+        _getCurrentUserAgent();
+      },
+      shouldInterceptRequest: (controller, request) async {
+        if (isScanning) {
+          await _interceptNetworkRequest(request);
+        }
+        return null;
+      },
+      onConsoleMessage: (controller, consoleMessage) {
+        if (isScanning) {
+          _scanConsoleMessage(consoleMessage.message);
+        }
+      },
+      onLoadResource: (controller, resource) {
+        if (isScanning) {
+          _scanResourceUrl(resource.url.toString());
+        }
+      },
+    );
+
     _toggleScanning();
-    isAutoShowEnabled = true;
+    headlessWebView?.run();
   }
 
   @override
   void dispose() {
     _animationController.dispose();
     _stopScanning();
+    headlessWebView?.dispose();
     super.dispose();
   }
 
-  // Auto-show detected URLs when first video is found
-  void _autoShowDetectedUrls() {
-    if (isAutoShowEnabled && detectedUrls.isNotEmpty) {
-      Future.delayed(Duration(milliseconds: 500), () {
-        if (mounted) {
-          _showModernDetectedUrls();
-        }
-      });
-    }
-  }
 
-  void _showModernDetectedUrls() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        maxChildSize: 0.95,
-        minChildSize: 0.3,
-        builder: (context, scrollController) => Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Colors.grey[50]!,
-                Colors.white,
-              ],
-            ),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 20,
-                offset: Offset(0, -5),
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              // Handle bar
-              Container(
-                margin: EdgeInsets.only(top: 12),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
 
-              // Header
-              Container(
-                padding: EdgeInsets.all(20),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Colors.blue[400]!, Colors.blue[600]!],
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.blue.withOpacity(0.3),
-                            blurRadius: 8,
-                            offset: Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Icon(Icons.video_library,
-                          color: Colors.white, size: 24),
-                    ),
-                    SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Detected Videos',
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey[800],
-                            ),
-                          ),
-                          Text(
-                            '${detectedUrls.length} video${detectedUrls.length != 1 ? 's' : ''} found',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
 
-              // Content
-              Expanded(
-                child: detectedUrls.isEmpty
-                    ? _buildEmptyState()
-                    : _buildVideoList(scrollController),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
-  Widget _buildActionButton({
-    required IconData icon,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        padding: EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: color.withOpacity(0.3)),
-        ),
-        child: Icon(icon, color: color, size: 20),
-      ),
-    );
-  }
 
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.grey[100],
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.search_off,
-              size: 48,
-              color: Colors.grey[400],
-            ),
-          ),
-          SizedBox(height: 16),
-          Text(
-            'No Videos Found Yet',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey[700],
-            ),
-          ),
-          SizedBox(height: 8),
-          Text(
-            'Navigate to a video page to start detecting',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[500],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildVideoList(ScrollController scrollController) {
-    return ListView.builder(
-      controller: scrollController,
-      padding: EdgeInsets.symmetric(horizontal: 16),
-      itemCount: detectedUrls.length,
-      itemBuilder: (context, index) {
-        final urlInfo = detectedUrls[index];
-        return _buildVideoCard(urlInfo, index);
-      },
-    );
-  }
 
-  Widget _buildVideoCard(M3U8UrlInfo urlInfo, int index) {
-    final hasAuth = urlInfo.authToken != null;
-
-    return Container(
-      margin: EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 12,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header with play button
-          Container(
-            padding: EdgeInsets.all(16),
-            child: Row(
-              children: [
-                // Video thumbnail placeholder
-                Container(
-                  width: 60,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: hasAuth
-                          ? [Colors.green[400]!, Colors.green[600]!]
-                          : [Colors.blue[400]!, Colors.blue[600]!],
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    Icons.play_arrow,
-                    color: Colors.white,
-                    size: 28,
-                  ),
-                ),
-                SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            'Video ${index + 1}',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey[800],
-                            ),
-                          ),
-                          if (hasAuth) ...[
-                            SizedBox(width: 8),
-                            Container(
-                              padding: EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.green.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                    color: Colors.green.withOpacity(0.3)),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.security,
-                                      size: 12, color: Colors.green),
-                                  SizedBox(width: 4),
-                                  Text(
-                                    'Auth',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: Colors.green,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        urlInfo.source,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // Quick action buttons
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _buildQuickAction(
-                      icon: Icons.info_outline,
-                      color: Colors.blue,
-                      onTap: () {
-                        Navigator.pop(context);
-                        _showModernUrlDetails(urlInfo, index + 1);
-                      },
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-
-          // Play button
-          Container(
-            width: double.infinity,
-            margin: EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _testPlayUrl(urlInfo);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: hasAuth ? Colors.green : Colors.blue,
-                foregroundColor: Colors.white,
-                padding: EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                elevation: 0,
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.play_arrow, size: 20),
-                  SizedBox(width: 8),
-                  Text(
-                    'Play Video',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildQuickAction({
-    required IconData icon,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        padding: EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Icon(icon, color: color, size: 18),
-      ),
-    );
-  }
-
-  void _showModernUrlDetails(M3U8UrlInfo urlInfo, int videoNumber) {
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.transparent,
-        child: Container(
-          width: double.maxFinite,
-          constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(context).size.height * 0.8),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 20,
-                offset: Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Header
-              Container(
-                padding: EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Colors.blue[400]!, Colors.blue[600]!],
-                  ),
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.info, color: Colors.white, size: 24),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Video $videoNumber Details',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                    InkWell(
-                      onTap: () => Navigator.pop(context),
-                      child: Container(
-                        padding: EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Icon(Icons.close, color: Colors.white, size: 20),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Content
-              Flexible(
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildDetailSection('URL', urlInfo.url,
-                          isSelectable: true),
-                      _buildDetailSection('Source', urlInfo.source),
-                      _buildDetailSection(
-                          'Timestamp', urlInfo.timestamp.toString()),
-                      if (urlInfo.authToken != null)
-                        _buildDetailSection('Auth Token', urlInfo.authToken!,
-                            isSelectable: true,
-                            isHighlighted: true,
-                            color: Colors.green),
-                      if (urlInfo.formattedUrl != urlInfo.url)
-                        _buildDetailSection(
-                            'Formatted URL', urlInfo.formattedUrl,
-                            isSelectable: true,
-                            isHighlighted: true,
-                            color: Colors.blue),
-                      if (urlInfo.referer != null)
-                        _buildDetailSection('Referer', urlInfo.referer!,
-                            isSelectable: true),
-                      if (urlInfo.userAgent != null)
-                        _buildDetailSection('User Agent', urlInfo.userAgent!,
-                            isSelectable: true),
-                      if (urlInfo.cookies != null &&
-                          urlInfo.cookies!.isNotEmpty)
-                        _buildDetailSection('Cookies', urlInfo.cookies!,
-                            isSelectable: true),
-                      if (urlInfo.headers.isNotEmpty) ...[
-                        SizedBox(height: 16),
-                        Text('Headers:',
-                            style: TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.bold)),
-                        SizedBox(height: 8),
-                        ...urlInfo.headers.entries.map((e) =>
-                            _buildDetailSection(e.key, e.value,
-                                isSelectable: true, isSubItem: true)),
-                      ],
-                      if (urlInfo.metadata.isNotEmpty) ...[
-                        SizedBox(height: 16),
-                        Text('Metadata:',
-                            style: TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.bold)),
-                        SizedBox(height: 8),
-                        ...urlInfo.metadata.entries.map((e) =>
-                            _buildDetailSection(e.key, e.value.toString(),
-                                isSubItem: true)),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-
-              // Actions
-              Container(
-                padding: EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.grey[50],
-                  borderRadius:
-                      BorderRadius.vertical(bottom: Radius.circular(20)),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _testPlayUrl(urlInfo);
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
-                          foregroundColor: Colors.white,
-                          padding: EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10)),
-                        ),
-                        child: Text('Play Video'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDetailSection(
-    String label,
-    String value, {
-    bool isSelectable = false,
-    bool isHighlighted = false,
-    bool isSubItem = false,
-    Color? color,
-  }) {
-    return Container(
-      margin: EdgeInsets.only(bottom: 12, left: isSubItem ? 16 : 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '$label:',
-            style: TextStyle(
-              fontSize: isSubItem ? 13 : 14,
-              fontWeight: FontWeight.w600,
-              color: color ?? (isHighlighted ? Colors.blue : Colors.grey[700]),
-            ),
-          ),
-          SizedBox(height: 4),
-          Container(
-            width: double.infinity,
-            padding: EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: (color ?? Colors.grey[100])!.withOpacity(0.3),
-              borderRadius: BorderRadius.circular(8),
-              border: isHighlighted
-                  ? Border.all(color: (color ?? Colors.blue).withOpacity(0.5))
-                  : null,
-            ),
-            child: isSelectable
-                ? SelectableText(
-                    value,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontFamily: 'monospace',
-                      color: color ?? Colors.grey[800],
-                    ),
-                  )
-                : Text(
-                    value,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontFamily: 'monospace',
-                      color: color ?? Colors.grey[800],
-                    ),
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
 
   // Enhanced status bar to show auto-stop info
   Widget _buildStatusBar() {
@@ -702,6 +185,10 @@ class _M3U8WebViewScannerState extends State<M3U8WebViewScanner>
             Icon(Icons.radar, size: 16, color: Colors.green),
             SizedBox(width: 4),
             Text('Scanning...', style: TextStyle(color: Colors.green)),
+            SizedBox(width: 8),
+            Icon(Icons.play_arrow, size: 16, color: Colors.blue),
+            SizedBox(width: 4),
+            Text('Auto-play', style: TextStyle(fontSize: 12, color: Colors.blue)),
             SizedBox(width: 8),
             Text('Auto-stop: ${_inactivityTimeoutSeconds}s',
                 style: TextStyle(fontSize: 12, color: Colors.grey)),
@@ -725,125 +212,221 @@ class _M3U8WebViewScannerState extends State<M3U8WebViewScanner>
         foregroundColor: Colors.grey[800],
         elevation: 0,
         actions: [
-          // Detected URLs count badge
-          if (detectedUrls.isNotEmpty)
-            Container(
-              margin: EdgeInsets.only(right: 8),
-              child: InkWell(
-                onTap: _showModernDetectedUrls,
-                child: Container(
-                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Colors.blue[400]!, Colors.blue[600]!],
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.blue.withOpacity(0.3),
-                        blurRadius: 8,
-                        offset: Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.video_library, color: Colors.white, size: 16),
-                      SizedBox(width: 4),
-                      Text(
-                        '${detectedUrls.length}',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
-          IconButton(
-            icon: Icon(Icons.settings),
-            onPressed: _showSettings,
-          ),
           IconButton(
             icon: Icon(Icons.refresh),
             onPressed: () {
-              _toggleScanning();
-              webViewController?.reload();
+              if (isScanning) {
+                webViewController?.reload();
+              } else {
+                _startScanningAgain();
+              }
             },
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // Modern status bar
-          _buildStatusBar(),
+      body: _buildBody(),
+    );
+  }
 
-          // WebView
-          Expanded(
-            child: (!isScanning) 
-              ? Center(
-                  child: ElevatedButton.icon(
-                    onPressed: _showModernDetectedUrls,
-                    icon: Icon(Icons.play_arrow_rounded),
-                    label: Text('View Videos'),
-                    style: ElevatedButton.styleFrom(
-                      padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      backgroundColor: Colors.blue[600],
-                      foregroundColor: Colors.white,
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+  void _startScanningAgain() {
+    setState(() {
+      detectedUrls.clear();
+      isScanning = true;
+    });
+    _startAdvancedScanningWithAutoStop();
+    webViewController?.loadUrl(
+        urlRequest: URLRequest(url: WebUri(widget.initialUrl)));
+  }
+
+  Widget _buildBody() {
+    if (detectedUrls.isNotEmpty) {
+      return _buildDetectedVideosView();
+    } else if (isScanning) {
+      return _buildScanningView();
+    } else {
+      return _buildInitialOrEmptyView();
+    }
+  }
+
+  Widget _buildScanningView() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 64,
+              height: 64,
+              child: CircularProgressIndicator(
+                strokeWidth: 5,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.blue[600]!),
+              ),
+            ),
+            SizedBox(height: 32),
+            Text(
+              'Scanning for video streams...',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[800],
+              ),
+            ),
+            SizedBox(height: 12),
+            Text(
+              'Please wait while we analyze the page for playable videos.\nThe first video will be played automatically.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey[600],
+              ),
+            ),
+            SizedBox(height: 24),
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.green.withOpacity(0.3)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.play_arrow, color: Colors.green, size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    'Auto-play enabled',
+                    style: TextStyle(
+                      color: Colors.green,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
                     ),
                   ),
-                )
-              : InAppWebView(
-                  initialUrlRequest: URLRequest(url: WebUri(widget.initialUrl)),
-                  initialSettings: InAppWebViewSettings(
-                    allowsInlineMediaPlayback: true,
-                    mediaPlaybackRequiresUserGesture: false,
-                    allowsAirPlayForMediaPlayback: true,
-                    allowsPictureInPictureMediaPlayback: true,
-                    iframeAllowFullscreen: true,
-                    useShouldInterceptRequest: true,
-                    javaScriptEnabled: true,
-                    domStorageEnabled: true,
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetectedVideosView() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.green[100],
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.play_circle_filled, size: 64, color: Colors.green[600]),
+            ),
+            SizedBox(height: 32),
+            Text(
+              'Video Found!',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[800],
+              ),
+            ),
+            SizedBox(height: 12),
+            Text(
+              'Playing the detected video automatically...',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey[600],
+              ),
+            ),
+            SizedBox(height: 24),
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.green.withOpacity(0.3)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.check_circle, color: Colors.green, size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    '${detectedUrls.length} video${detectedUrls.length != 1 ? 's' : ''} detected',
+                    style: TextStyle(
+                      color: Colors.green,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
                   ),
-                  onWebViewCreated: (controller) {
-                    webViewController = controller;
-                    _setupJavaScriptInterfaces(controller);
-                  },
-                  onLoadStart: (controller, url) {
-                    setState(() {
-                      currentUrl = url?.toString() ?? '';
-                    });
-                    _getCurrentCookies();
-                    _getCurrentUserAgent();
-                  },
-                  shouldInterceptRequest: (controller, request) async {
-                    if (isScanning) {
-                      await _interceptNetworkRequest(request);
-                    }
-                    return null;
-                  },
-                  onConsoleMessage: (controller, consoleMessage) {
-                    if (isScanning) {
-                      _scanConsoleMessage(consoleMessage.message);
-                    }
-                  },
-                  onLoadResource: (controller, resource) {
-                    if (isScanning) {
-                      _scanResourceUrl(resource.url.toString());
-                    }
-                  },
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInitialOrEmptyView() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.search_off, size: 64, color: Colors.grey[500]),
+            ),
+            SizedBox(height: 32),
+            Text(
+              'No Videos Found',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[800],
+              ),
+            ),
+            SizedBox(height: 12),
+            Text(
+              'The scan completed, but no video streams were detected on the page.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey[600],
+              ),
+            ),
+            SizedBox(height: 32),
+            ElevatedButton.icon(
+              onPressed: _startScanningAgain,
+              icon: Icon(Icons.refresh),
+              label: Text('Retry'),
+              style: ElevatedButton.styleFrom(
+                padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                backgroundColor: Colors.blue[600],
+                foregroundColor: Colors.white,
+                textStyle:
+                    TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
-          ),
-        ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1178,7 +761,9 @@ class _M3U8WebViewScannerState extends State<M3U8WebViewScanner>
     ''';
 
     Timer(Duration(milliseconds: 1500), () {
-      controller.evaluateJavascript(source: jsCode);
+      if (mounted && webViewController != null) {
+        controller.evaluateJavascript(source: jsCode);
+      }
     });
   }
 
@@ -1373,10 +958,6 @@ class _M3U8WebViewScannerState extends State<M3U8WebViewScanner>
         cookies: _formatCookies(currentCookies),
       );
       _addDetectedUrl(urlInfo);
-      // if (detectedUrls.length > 1) {
-      //   _toggleScanning();
-      //   _autoShowDetectedUrls();
-      // }
     }
   }
 
@@ -1392,18 +973,24 @@ class _M3U8WebViewScannerState extends State<M3U8WebViewScanner>
 
   void _addDetectedUrl(M3U8UrlInfo urlInfo) {
     if (!detectedUrls.any((item) => item.url == urlInfo.url)) {
-      final isFirstVideo = detectedUrls.isEmpty;
-      setState(() {
-        detectedUrls.add(urlInfo);
-      });
+      if (mounted) {
+        setState(() {
+          detectedUrls.add(urlInfo);
+        });
+      }
 
       print('🎯 M3U8 Detected: ${urlInfo.url}');
       print('   Source: ${urlInfo.source}');
       print('   Token: ${urlInfo.authToken ?? 'None'}');
 
-      // Auto-show popup for first detected video
-      if (isFirstVideo) {
-        _autoShowDetectedUrls();
+      // Auto-play the first detected video
+      if (detectedUrls.length == 1) {
+        _autoPlayFirstVideo(urlInfo);
+      }
+
+      // Reset inactivity timer when new URL is found to give user time to select
+      if (isScanning && mounted) {
+        _resetInactivityTimer();
       }
     }
   }
@@ -1451,40 +1038,7 @@ class _M3U8WebViewScannerState extends State<M3U8WebViewScanner>
     webViewController?.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
   }
 
-  void _showSettings() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Scanner Settings'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SwitchListTile(
-              title: Text('Auto-extract tokens'),
-              value: true,
-              onChanged: (value) {},
-            ),
-            SwitchListTile(
-              title: Text('Monitor storage'),
-              value: true,
-              onChanged: (value) {},
-            ),
-            SwitchListTile(
-              title: Text('Deep content scan'),
-              value: true,
-              onChanged: (value) {},
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
+
 
   String _formatUrlInfoForCopy(M3U8UrlInfo urlInfo) {
     final buffer = StringBuffer();
@@ -1533,6 +1087,17 @@ class _M3U8WebViewScannerState extends State<M3U8WebViewScanner>
     _openVideoPlayer(urlInfo);
   }
 
+  void _autoPlayFirstVideo(M3U8UrlInfo urlInfo) {
+    // Add a small delay to ensure the UI is updated
+    Timer(Duration(milliseconds: 500), () {
+      if (mounted) {
+        print('🎬 Auto-playing first detected video: ${urlInfo.url}');
+        _showSnackBar('🎬 Video is now playing!', Colors.green);
+        _openVideoPlayer(urlInfo);
+      }
+    });
+  }
+
   void _openVideoPlayer(M3U8UrlInfo urlInfo) {
     // Create headers map for the video player
     Map<String, String> playerHeaders = {};
@@ -1569,10 +1134,10 @@ class _M3U8WebViewScannerState extends State<M3U8WebViewScanner>
     String playUrl = urlInfo.formattedUrl;
 
     try {
-      Navigator.push(
+      Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => VideoPlayerScreen(
+          builder: (_) => EnhancedVideoPlayerScreen(
             videoUrl: urlInfo.url,
             headers: urlInfo.headers, // All custom headers
             cookies: urlInfo.cookies, // Session cookies
@@ -1680,10 +1245,9 @@ class _M3U8WebViewScannerState extends State<M3U8WebViewScanner>
 
     _stopScanning();
 
+    _showSnackBar(reason, Colors.orange);
     print('⏹️ Auto-stopped scanning: $reason');
     print('📊 Final count: ${detectedUrls.length} M3U8 URLs detected');
-
-    
   }
 
 // Clean stop scanning

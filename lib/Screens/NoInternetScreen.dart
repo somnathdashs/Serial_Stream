@@ -96,7 +96,7 @@ class _NoInternetScreenState extends State<NoInternetScreen> {
                   const SizedBox(height: 40),
                   ElevatedButton(
                     onPressed: () {
-                      Navigator.pushNamed(context, DownloadedVideoScreenRoute);
+                      Navigator.pop(context);
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blueAccent,
@@ -109,7 +109,7 @@ class _NoInternetScreenState extends State<NoInternetScreen> {
                       ),
                     ),
                     child: const Text(
-                      "Go to Downloaded Videos",
+                      "Back",
                       style: TextStyle(fontSize: 16, color: Colors.white),
                     ),
                   ),

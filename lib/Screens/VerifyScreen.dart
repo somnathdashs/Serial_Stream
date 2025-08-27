@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:serial_stream/LocalStorage.dart';
@@ -41,6 +43,8 @@ class _VerifyScreenState extends State<VerifyScreen> {
   bool tryagain = false;
 
   Future<bool> getLinks() async {
+    // Check if the device is Android TV and, if so, skip link fetching and go to HomeScreenRoute
+
     final versionsCollection =
         FirebaseFirestore.instance.collection('inAppLinks');
     final snapshot = await versionsCollection.get();
@@ -68,6 +72,8 @@ class _VerifyScreenState extends State<VerifyScreen> {
   @override
   void initState() {
     super.initState();
+    // Check for Android TV using MediaQuery (now safe to call)
+   
     getLinks().then((value) {
       setState(() {
         tryagain = value;
@@ -209,7 +215,8 @@ class _VerifyScreenState extends State<VerifyScreen> {
                                 ),
                                 SizedBox(height: 20),
                                 InkWell(
-                                  focusColor: const Color.fromARGB(255, 245, 176, 66),
+                                  focusColor:
+                                      const Color.fromARGB(255, 245, 176, 66),
                                   onTap: () {
                                     launchUrl(
                                         Uri.parse(
@@ -282,7 +289,8 @@ class _VerifyScreenState extends State<VerifyScreen> {
                                           focusColor: Colors.blue.shade400,
                                           onTap: () {
                                             launchUrl(Uri.parse(servers[index]),
-                                                mode: LaunchMode.inAppWebView);
+                                                mode: LaunchMode
+                                                    .externalApplication);
                                           },
                                           borderRadius:
                                               BorderRadius.circular(16),
@@ -355,11 +363,13 @@ class _VerifyScreenState extends State<VerifyScreen> {
                                     Expanded(
                                       child: ElevatedButton.icon(
                                         onPressed: () async {
-                                          final uri = Uri.parse("https://t.me/serial_stream");
+                                          final uri = Uri.parse(
+                                              "https://t.me/serial_stream");
                                           if (await canLaunchUrl(uri)) {
                                             await launchUrl(
                                               uri,
-                                              mode: LaunchMode.externalApplication,
+                                              mode: LaunchMode
+                                                  .externalApplication,
                                             );
                                           }
                                         },
@@ -368,9 +378,11 @@ class _VerifyScreenState extends State<VerifyScreen> {
                                         style: ElevatedButton.styleFrom(
                                           backgroundColor: Colors.blue,
                                           foregroundColor: Colors.white,
-                                          padding: EdgeInsets.symmetric(vertical: 12),
+                                          padding: EdgeInsets.symmetric(
+                                              vertical: 12),
                                           shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(12),
+                                            borderRadius:
+                                                BorderRadius.circular(12),
                                           ),
                                           elevation: 2,
                                         ),
@@ -380,22 +392,27 @@ class _VerifyScreenState extends State<VerifyScreen> {
                                     Expanded(
                                       child: ElevatedButton.icon(
                                         onPressed: () async {
-                                          final uri = Uri.parse("https://www.facebook.com/profile.php?id=61573995827396");
+                                          final uri = Uri.parse(
+                                              "https://www.facebook.com/profile.php?id=61573995827396");
                                           if (await canLaunchUrl(uri)) {
                                             await launchUrl(
                                               uri,
-                                              mode: LaunchMode.externalApplication,
+                                              mode: LaunchMode
+                                                  .externalApplication,
                                             );
                                           }
                                         },
                                         icon: Icon(Icons.facebook),
                                         label: Text('Facebook'),
                                         style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.indigo.shade700,
+                                          backgroundColor:
+                                              Colors.indigo.shade700,
                                           foregroundColor: Colors.white,
-                                          padding: EdgeInsets.symmetric(vertical: 12),
+                                          padding: EdgeInsets.symmetric(
+                                              vertical: 12),
                                           shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(12),
+                                            borderRadius:
+                                                BorderRadius.circular(12),
                                           ),
                                           elevation: 2,
                                         ),
@@ -436,5 +453,4 @@ class _VerifyScreenState extends State<VerifyScreen> {
       ),
     );
   }
-
 }

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 
 import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:feedback/feedback.dart';
@@ -18,6 +19,8 @@ import 'package:serial_stream/services/analytics_service.dart';
 import 'package:serial_stream/services/analytics_route_observer.dart';
 import 'package:app_links/app_links.dart';
 import 'dart:async';
+
+import 'package:workmanager/workmanager.dart';
 // import 'package:workmanager/workmanager.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -45,6 +48,8 @@ void main() async {
 
     // Initialize other services
     Backend.initialized();
+    Workmanager().initialize(callbackDispatcher);
+    Workmanager().registerOneOffTask("fetchNotificationsTask_v3", "fetchNotifications");
 
     // Run the app with error catching
     runApp(const BetterFeedback(child: MyApp()));
@@ -121,6 +126,7 @@ class _MyAppState extends State<MyApp> {
 
     // Safely call the schedule method
     try {
+
       scheduleTaskFor6PM();
     } catch (e) {
       print("Error in scheduleTaskFor6PM: $e");
@@ -341,6 +347,13 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final List<NavigatorObserver> navigatorObservers = [routeObserver];
+     final screenSize = MediaQuery.of(context).size;
+    final shortestSide = screenSize.shortestSide;
+    final aspectRatio = screenSize.width / screenSize.height;
+
+    // Android TV typically has larger screens and different aspect ratios
+    var _isAndroidTV =
+        Platform.isAndroid && (shortestSide > 600 || aspectRatio > 1.5);
 
     // Add Firebase Analytics observer if available
     if (observer != null) {
@@ -435,7 +448,7 @@ class _MyAppState extends State<MyApp> {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
           onGenerateRoute: AppRoutes.generateRoute,
-          home: VerifyScreen(),
+          home:_isAndroidTV?MyHomePage(): VerifyScreen(),
           navigatorKey: navigatorKey,
           // Add the analytics observers for navigation tracking
           navigatorObservers: navigatorObservers,

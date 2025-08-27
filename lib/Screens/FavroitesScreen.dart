@@ -17,7 +17,7 @@ class FavoritesScreen extends StatefulWidget {
 }
 
 class _FavoritesScreenState extends State<FavoritesScreen> {
-  bool isGridView = false;
+  bool isGridView = true;
   List shows = [];
   late final Connectivity _connectivity;
   late StreamSubscription _subscription;

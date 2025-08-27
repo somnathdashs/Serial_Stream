@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ffi';
 import 'dart:math';
 import 'package:intl/intl.dart';
 import 'dart:developer' as d;
@@ -212,7 +213,7 @@ class Backend {
             if (src.contains("social") || src.contains("icon")) {
               d.log(img.outerHtml.toString());
             }
-            if (!src.contains("social")|| !src.contains("icon")) {
+            if (!src.contains("social") || !src.contains("icon")) {
               cachceData[query] = src;
               Localstorage.setData(
                   Localstorage.ImagesUrls, jsonEncode(cachceData));
@@ -236,7 +237,7 @@ class Backend {
     var cachceData =
         await Localstorage.getData(Localstorage.ImagesUrls) ?? "{}";
     cachceData = jsonDecode(cachceData);
-    
+
     if (cachceData.keys.contains(show)) {
       return cachceData[show];
     }
@@ -348,60 +349,61 @@ class Backend {
     return pages;
   }
 
-    static Future<String?> extractIframSRC_from_Webpage(
-        String pageUrl, hEader) async {
-      try {
-        http.Response response = await fetchHTMLdata(pageUrl, Header: hEader);
-        if (response.statusCode != 200) {
+  static Future<String?> extractIframSRC_from_Webpage(
+      String pageUrl, hEader) async {
+    try {
+      http.Response response = await fetchHTMLdata(pageUrl, Header: hEader);
+      if (response.statusCode != 200) {
         return null;
-        }
-        final document = parser.parse(response.body);
-
-        // Find all <iframe> elements
-        final iframeElements = document.querySelectorAll('iframe');
-
-        // Extract the 'src' attribute of each <iframe> element
-        final iframeSrcElements =
-          iframeElements.map((iframe) => iframe.attributes['src'] ?? '').toList();
-
-        return iframeSrcElements[0];
-      } catch (e) {
-        // Error extracting iframe HTML elements
       }
+      final document = parser.parse(response.body);
 
-      return null;
+      // Find all <iframe> elements
+      final iframeElements = document.querySelectorAll('iframe');
+
+      // Extract the 'src' attribute of each <iframe> element
+      final iframeSrcElements = iframeElements
+          .map((iframe) => iframe.attributes['src'] ?? '')
+          .toList();
+
+      return iframeSrcElements[0];
+    } catch (e) {
+      // Error extracting iframe HTML elements
     }
 
-    static Future<List<String>> extractEntryContentUrls(
-        String WatchPageUrl, hEader) async {
-      try {
-        http.Response response =
-            await fetchHTMLdata(WatchPageUrl, Header: hEader);
-        if (response.statusCode != 200) {
-          return [];
-        }
-        final document = parser.parse(response.body);
-        final entryContentDiv = document.querySelector("div.entry_content");
+    return null;
+  }
 
-        if (entryContentDiv != null) {
-          final urls = entryContentDiv
-              .querySelectorAll('a[href]')
-              .map((a) => a.attributes['href'] ?? '')
-              .where((href) => href.isNotEmpty)
-              .toList();
-
-          if (urls.length > 5) {
-            urls.removeLast();
-          }
-
-          return urls;
-        }
-      } catch (e) {
-        // Error extracting entry content URLs
+  static Future<List<String>> extractEntryContentUrls(
+      String WatchPageUrl, hEader) async {
+    try {
+      http.Response response =
+          await fetchHTMLdata(WatchPageUrl, Header: hEader);
+      if (response.statusCode != 200) {
+        return [];
       }
+      final document = parser.parse(response.body);
+      final entryContentDiv = document.querySelector("div.entry_content");
 
-      return [];
+      if (entryContentDiv != null) {
+        final urls = entryContentDiv
+            .querySelectorAll('a[href]')
+            .map((a) => a.attributes['href'] ?? '')
+            .where((href) => href.isNotEmpty)
+            .toList();
+
+        if (urls.length > 5) {
+          urls.removeLast();
+        }
+
+        return urls;
+      }
+    } catch (e) {
+      // Error extracting entry content URLs
     }
+
+    return [];
+  }
 
 // Web series
   static Future<List<Map<String, dynamic>>> extractWebSeriseData() async {
@@ -462,27 +464,26 @@ class Backend {
       var header = Get_a_Header();
       var results = [];
       var ALLresults = [];
-      if (createHttpClient() == null) {
-        return {"status": false, "data": []};
+      var client = createHttpClient();
+      if (client == null) {
+        return {
+          "status": false,
+          "data": []
+        };
       }
-      final ioClient = IOClient(createHttpClient());
+      final ioClient = IOClient(client);
       final response = await ioClient.get(Uri.parse(Url), headers: header);
-
       if (response.statusCode == 200) {
         trys = 0;
         final document = parser.parse(response.body);
-
         // Select all <a> inside <h4> within .item_content
         final episodeLinks = document.querySelectorAll('div.item_content h4 a');
-
         // Filter out links containing "preview" in their name
         episodeLinks
             .removeWhere((ep) => ep.text.toLowerCase().contains('preview'));
-
         for (dom.Element ep in episodeLinks) {
           var title = ep.text.trim();
           final href = ep.attributes['href'] ?? '';
-
           if (title.toLowerCase().contains('preview')) {
             continue;
           }
@@ -490,23 +491,87 @@ class Backend {
             'title': title,
             'url': href,
           });
+
           if (title.isNotEmpty && href.isNotEmpty) {
-            // Extract date from the title
+            // Extract date from the title - Fixed regex pattern
             final dateRegex = RegExp(
                 r'\b(\d{1,2}(?:st|nd|rd|th)?\s+\w+\s+\d{4}|\d{4}[-/]\d{1,2}[-/]\d{1,2})\b',
                 caseSensitive: false);
             final match = dateRegex.firstMatch(title);
             if (match != null) {
-              final dateString = match
-                  .group(0)!
-                  .replaceAll(
-                      RegExp(r'(st|nd|rd|th)', caseSensitive: false), '')
-                  .trim();
-              // Parse the date
-              final date = DateTime.tryParse(dateString.replaceAll('/', '-')) ??
-                  DateFormat('d MMMM yyyy').parse(dateString, true);
-              if (date
-                  .isAfter(DateTime.now().subtract(const Duration(days: 1)))) {
+              var dateString = match.group(0)!;
+
+              // Remove ordinal suffixes (st, nd, rd, th)
+              dateString = dateString.replaceAll(
+                  RegExp(r'(st|nd|rd|th)', caseSensitive: false), '');
+
+              // Clean up extra spaces
+              dateString = dateString.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+              DateTime? date;
+
+              // Try parsing as yyyy-MM-dd or yyyy/MM/dd first
+              if (dateString.contains('-') || dateString.contains('/')) {
+                date = DateTime.tryParse(dateString.replaceAll('/', '-'));
+              }
+
+              // If not a standard format, try parsing as date with month name
+              if (date == null) {
+                // Split the date string to handle partial month names
+                final parts = dateString.split(' ');
+                if (parts.length == 3) {
+                  final day = parts[0];
+                  var month = parts[1];
+                  final year = parts[2];
+
+                  // Handle abbreviated month names by extending them
+                  final monthMap = {
+                    'jan': 'January', 'feb': 'February', 'mar': 'March',
+                    'apr': 'April', 'may': 'May', 'jun': 'June',
+                    'jul': 'July', 'aug': 'August', 'sep': 'September',
+                    'oct': 'October', 'nov': 'November', 'dec': 'December',
+                    'augu':
+                        'August', // Handle the specific case from your error
+                  };
+
+                  // Check if month is abbreviated or truncated
+                  final monthLower = month.toLowerCase();
+                  for (String key in monthMap.keys) {
+                    if (monthLower.startsWith(key) ||
+                        key.startsWith(monthLower)) {
+                      month = monthMap[key]!;
+                      break;
+                    }
+                  }
+
+                  // Reconstruct the date string
+                  final reconstructed = '$day $month $year';
+
+                  try {
+                    // Try parsing with full month name
+                    date = DateFormat('d MMMM yyyy').parseLoose(reconstructed);
+                  } catch (e) {
+                    try {
+                      // Try with short month name as fallback
+                      date = DateFormat('d MMM yyyy').parseLoose(reconstructed);
+                    } catch (e) {
+                      // Try parsing the original format in case it's valid
+                      try {
+                        date = DateFormat('d MMMM yyyy').parseLoose(dateString);
+                      } catch (e) {
+                        // If all parsing fails, skip this entry
+                        print('Failed to parse date: $dateString - Error: $e');
+                        continue;
+                      }
+                    }
+                  }
+                }
+              }
+
+              // Check if date is within the last 5 days
+              if (date != null &&
+                  date.isAfter(
+                      DateTime.now().subtract(const Duration(days: 1)))) {
                 results.add({
                   'title': title,
                   'url': href,
@@ -524,10 +589,117 @@ class Backend {
         } else {
           trys = 0;
         }
-        return {"status": false, "data": {}};
+        return {"status": false, "data": response.statusCode};
       }
     } catch (e) {
-      return {"status": false, "data": {}};
+      print('Error in fetchNotification: $e');
+      return {"status": false, "data": e.toString()};
+    }
+  }
+
+  /// Extracts date from title string using multiple parsing strategies
+  static DateTime? _extractDateFromTitle(String title) {
+    // Define comprehensive date patterns
+    final datePatterns = [
+      // Pattern 1: "25th August 2025", "1st January 2025"
+      RegExp(
+        r'\b(\d{1,2})(?:st|nd|rd|th)?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\b',
+        caseSensitive: false,
+      ),
+      // Pattern 2: "25 Aug 2025", "1 Jan 2025"
+      RegExp(
+        r'\b(\d{1,2})(?:st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})\b',
+        caseSensitive: false,
+      ),
+      // Pattern 3: "2025-08-25", "2025/08/25"
+      RegExp(r'\b(\d{4})[-/](\d{1,2})[-/](\d{1,2})\b'),
+      // Pattern 4: "25-08-2025", "25/08/2025"
+      RegExp(r'\b(\d{1,2})[-/](\d{1,2})[-/](\d{4})\b'),
+    ];
+
+    for (final pattern in datePatterns) {
+      final match = pattern.firstMatch(title);
+      if (match != null) {
+        final parsedDate = _parseMatchedDate(match, pattern);
+        if (parsedDate != null) {
+          return parsedDate;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /// Parses matched date based on the regex pattern used
+  static DateTime? _parseMatchedDate(RegExpMatch match, RegExp pattern) {
+    try {
+      final matchedText = match.group(0)!;
+
+      // Remove ordinal suffixes (st, nd, rd, th)
+      final cleanText = matchedText.replaceAll(
+          RegExp(r'\b(\d+)(?:st|nd|rd|th)\b', caseSensitive: false), r'$1');
+
+      // Try different date formats
+      final dateFormats = [
+        'dd MMMM yyyy', // 25 August 2025
+        'dd MMM yyyy', // 25 Aug 2025
+        'd MMMM yyyy', // 1 August 2025
+        'd MMM yyyy', // 1 Aug 2025
+        'yyyy-MM-dd', // 2025-08-25
+        'yyyy/MM/dd', // 2025/08/25
+        'dd-MM-yyyy', // 25-08-2025
+        'dd/MM/yyyy', // 25/08/2025
+        'MM-dd-yyyy', // 08-25-2025
+        'MM/dd/yyyy', // 08/25/2025
+      ];
+
+      for (final format in dateFormats) {
+        try {
+          final dateFormat = DateFormat(format);
+          return dateFormat.parseStrict(cleanText);
+        } catch (e) {
+          // Continue to next format
+          continue;
+        }
+      }
+
+      // If standard parsing fails, try parseLoose as fallback
+      for (final format in ['dd MMMM yyyy', 'dd MMM yyyy']) {
+        try {
+          final dateFormat = DateFormat(format);
+          return dateFormat.parseLoose(cleanText);
+        } catch (e) {
+          continue;
+        }
+      }
+    } catch (e) {
+      print('Date parsing error for "${match.group(0)}": $e');
+    }
+
+    return null;
+  }
+
+  /// Handles HTTP error responses with retry logic
+  static Map<String, dynamic> _handleHttpError(int statusCode, String url) {
+    if (trys < maxtrys) {
+      trys++;
+      print('HTTP Error $statusCode for $url. Retry attempt: $trys');
+      // Uncomment the line below if you want automatic retries
+      // return fetchNotification(url);
+      return {
+        "status": false,
+        "data": "HTTP Error: $statusCode (Retry $trys/$maxtrys)",
+        "all": <Map<String, dynamic>>[],
+        "retryCount": trys,
+      };
+    } else {
+      trys = 0;
+      return {
+        "status": false,
+        "data": "HTTP Error: $statusCode (Max retries exceeded)",
+        "all": <Map<String, dynamic>>[],
+        "maxRetriesExceeded": true,
+      };
     }
   }
 }

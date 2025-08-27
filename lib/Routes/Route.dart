@@ -9,6 +9,7 @@ import 'package:serial_stream/Screens/VerifyScreen.dart';
 import 'package:serial_stream/Screens/VideoPlayer/Player.dart';
 import 'package:serial_stream/Screens/ShowScreen.dart';
 import 'package:serial_stream/Screens/VideoPlayer/ServersList.dart';
+import 'package:serial_stream/Screens/editdnsscreen.dart';
 import 'package:serial_stream/Variable.dart';
 
 class AppRoutes {
@@ -71,6 +72,8 @@ class AppRoutes {
         return MaterialPageRoute(builder: (context) => AboutPage());
       case DownloadedVideoScreenRoute:
         return MaterialPageRoute(builder: (context) => DownloadedVideoScreen());
+      case EditDnsScreenRoute:
+        return MaterialPageRoute(builder: (context) => DNSSetupScreen());
       default:
         return MaterialPageRoute(
           builder: (_) => Scaffold(

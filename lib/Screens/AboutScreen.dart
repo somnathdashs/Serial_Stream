@@ -96,9 +96,9 @@ class _AboutPageState extends State<AboutPage> {
                     context,
                     icon: Icons.language,
                     title: 'Visit Website',
-                    subtitle: 'somnathdashs.github.io',
+                    subtitle: 'somnathdashs.github.io/serial_stream/',
                     onTap: () =>
-                        _launchURL('https://somnathdashs.github.io/apps/'),
+                        _launchURL('https://somnathdashs.github.io/serial_stream/'),
                   ),
                   _buildCardItem(
                     context,
