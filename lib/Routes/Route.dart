@@ -9,7 +9,9 @@ import 'package:serial_stream/Screens/VerifyScreen.dart';
 import 'package:serial_stream/Screens/VideoPlayer/Player.dart';
 import 'package:serial_stream/Screens/ShowScreen.dart';
 import 'package:serial_stream/Screens/VideoPlayer/ServersList.dart';
+import 'package:serial_stream/Screens/VideoPlayer/ModernWebPlayer.dart';
 import 'package:serial_stream/Screens/editdnsscreen.dart';
+import 'package:serial_stream/Screens/HistoryScreen.dart';
 import 'package:serial_stream/Variable.dart';
 
 class AppRoutes {
@@ -48,13 +50,18 @@ class AppRoutes {
             String imageurl = arguments[2] as String;
             List epeQueau = arguments[3] as List;
             String channelName = arguments[4] as String;
+            String? parentShowTitle = arguments.length > 5 ? arguments[5] as String? : null;
+            String? showMainUrl = arguments.length > 6 ? arguments[6] as String? : null;
             return MaterialPageRoute(
-                builder: (_) => ServersList(
+                builder: (_) => EnhancedVideoPlayerScreen(
+                      videoUrl: "",
                       epishodeUrl: showurl,
-                      epishodeName: showtitle,
+                      title: showtitle,
                       showImageUrl: imageurl,
                       epishodesQueue: epeQueau,
                       channel:  channelName,
+                      parentShowTitle: parentShowTitle,
+                      showMainUrl: showMainUrl,
                     ));
           }
         }
@@ -64,6 +71,9 @@ class AppRoutes {
             builder: (context) => FavoritesScreen(
                   mode: mode ?? "Favorites",
                 ));
+      case HistoryScreenRoute:
+        return MaterialPageRoute(
+            builder: (context) => const HistoryScreen());
       case MoreWSScreenRoute:
         return MaterialPageRoute(builder: (context) => MoreWSScreen());
       case helpScreenRoute:

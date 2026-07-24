@@ -3,7 +3,7 @@
 A Flutter application for streaming TV series and movies.
 
 ## Description
-Serial Stream is a mobile application built with Flutter that allows users to watch TV series and movies. The app fetches content by web scraping from [DesiTellyBox](http://desitellybox.to/), providing access to a wide range of TV shows, movies, and web series. The app provides a user-friendly interface for browsing and streaming content.
+Serial Stream is a mobile application built with Flutter that allows users to watch TV series and movies. The app fetches content by web scraping from [Desi-Serials](https://www.desi-serials.to/), providing access to a wide range of TV shows, movies, and web series. The app provides a user-friendly interface for browsing and streaming content.
 [GET KNOW MORE ABOUT SERIAL STREAM](https://somnathdashs.github.io/apps/serial_stream/)
 
 Note: Since the app relies on web scraping, there might be occasional failures in content fetching due to:
@@ -17,6 +17,12 @@ Note: Since the app relies on web scraping, there might be occasional failures i
 - Stream content directly in the app
 - User-friendly interface
 - Cross-platform support (Android,Android TV)
+
+## What's New in Update 4.0.0
+- **Watch History:** Added a comprehensive Watch History page to easily track and resume previously viewed shows and episodes.
+- **Dynamic Theme Engine:** Toggle seamlessly between an AMOLED-optimized dark mode and a clean light theme.
+- **Android DNS Setup Guide:** Integrated an in-app setup guide with a copyable DNS address (`dns.adguard.com`) and step-by-step instructions (optimized for both Android Phone and Android TV) to prevent ISP blocking, video load failures, and buffering.
+- **Performance & Navigation Refinements:** Enhanced transitions, server sorting, PiP controls, and overall layout responsiveness.
 
 ## What's New in Update 3.5.0
 - **Bug Free:** No bugs.
@@ -60,8 +66,8 @@ The app previously experienced build failures due to compatibility issues with t
 These changes allowed the app to build successfully while we work on a more permanent solution for background notification functionality.
 
 ## Software Requirements
-- Flutter SDK: 3.29.3 (stable channel)
-- Dart SDK: 3.7.2
+- Flutter SDK: 3.44.2 (stable channel)
+- Dart SDK: 3.12.2
 - Android Studio: 2022.3
 - Windows 11 (Version 10.0.26100)
 - JDK: OpenJDK 17.0.6
@@ -75,16 +81,21 @@ The project uses the following main libraries:
 - `firebase_core` ^3.13.0 - For Firebase integration
 - `firebase_messaging` ^15.2.5 - For push notifications
 - `cloud_firestore` ^5.6.6 - For cloud database
-- `video_player` ^2.8.2 - For video playback
-- `better_player_plus` ^1.0.8 - For enhanced video playback
+- `video_player` - For video playback
+- `better_player_plus` ^1.3.4 - For enhanced video playback
 - `cached_network_image` ^3.4.1 - For image caching
 - `shared_preferences` ^2.5.3 - For local storage
 - `connectivity_plus` ^6.1.3 - For network status
 - `url_launcher` ^6.3.1 - For opening URLs
-- `share_plus` ^10.1.4 - For sharing content
+- `share_plus` ^13.3.0 - For sharing content
 - `firebase_analytics` ^11.4.5 - For app analytics
 - `flutter_file_downloader` ^2.1.0 - For file downloading capabilities
 - `app_links` ^6.4.0 - For deep linking functionality
+- `floating` ^6.0.0 - For Picture-in-Picture (PiP) support
+- `permission_handler` ^11.0.1 - For managing runtime permissions
+- `flutter_inappwebview` ^6.0.0 - For parsing sources using inline webviews
+- `awesome_notifications` ^0.10.1 - For custom notification styling
+- `flutter_local_notifications` ^19.2.0 - For local notifications
 
 For a complete list of dependencies, check the [pubspec.yaml](https://github.com/somnathdashs/Serial_Stream/blob/main/pubspec.yaml) file.
 
@@ -132,7 +143,7 @@ flutter run
 
 ## Build Information
 
-- Flutter: 3.29.3 (channel stable)
+- Flutter: 3.44.2 (channel stable)
 - Target Android SDK: 35
 - Minimum Android SDK: 23
 - Kotlin version: 1.9.22

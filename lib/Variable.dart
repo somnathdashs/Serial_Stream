@@ -1,5 +1,5 @@
 const String AppUrl = "https://somnathdashs.github.io/apps/serial_stream/";
-const String Website = "https://www.desitellybox.to/";
+const String Website = "https://www.desi-serials.to/";
 // Image search
 const String TVSearchebsite = "https://www.themoviedb.org/search/tv?query=";
 const String ImageNormalSearchWebsite =
@@ -7,14 +7,14 @@ const String ImageNormalSearchWebsite =
 const String HDIMAGEURL = "https://image.tmdb.org/t/p/w1280/";
 
 const List<Map<String, String>> Channels = [
-  {"name": "And TV", "url": "${Website}and-tv/"},
-  {"name": "Colors", "url": "${Website}colors-tv/"},
-  {"name": "MTV", "url": "${Website}mtv-channel/"},
-  {"name": "Sab TV", "url": "${Website}sab-tv/"},
-  {"name": "Sony TV", "url": "${Website}sony-tv/"},
-  {"name": "Star Bharat", "url": "${Website}star-bharat/"},
-  {"name": "Star Plus", "url": "${Website}star-plus/"},
+  {"name": "Latest", "url": "${Website}latest-episodes/"},
+  {"name": "Star Plus", "url": "${Website}star-plus-hdepisodes/"},
   {"name": "Zee TV", "url": "${Website}zee-tv/"},
+  {"name": "Sony TV", "url": "${Website}sony-tv/"},
+  {"name": "Colors", "url": "${Website}color-tv-hd/"},
+  {"name": "Star Bharat", "url": "${Website}star-bharat/"},
+  {"name": "Sab TV", "url": "${Website}sab-tv-hd/"},
+  {"name": "And TV", "url": "${Website}and-tv/"},
   {"name": "MORE", "url": ""},
 ];
 final List<String> blockedDomains = [
@@ -36,3 +36,4 @@ const String AboutScreenRoute = "/AboutScreen";
 const String DownloadedVideoScreenRoute = "/DownloadedVideoScreen";
 const String VerifyScreenRoute = "/vs";
 const String EditDnsScreenRoute = "/EditDnsScreen";
+const String HistoryScreenRoute = "/HistoryScreen";

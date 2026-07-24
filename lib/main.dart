@@ -1,10 +1,10 @@
 import 'dart:io';
 import 'dart:math';
-
 import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:feedback/feedback.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:serial_stream/Backend.dart';
 import 'package:serial_stream/Background.dart';
@@ -14,14 +14,14 @@ import 'package:serial_stream/Routes/Route.dart';
 import 'package:serial_stream/Screens/Home.dart';
 import 'package:serial_stream/Screens/VerifyScreen.dart';
 import 'package:serial_stream/Variable.dart';
+import 'package:serial_stream/app_theme.dart';
 import 'package:serial_stream/pushNotify.dart';
 import 'package:serial_stream/services/analytics_service.dart';
 import 'package:serial_stream/services/analytics_route_observer.dart';
 import 'package:app_links/app_links.dart';
 import 'dart:async';
-
+import 'package:device_preview/device_preview.dart';
 import 'package:workmanager/workmanager.dart';
-// import 'package:workmanager/workmanager.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 // Initialize Analytics Service
@@ -52,7 +52,9 @@ void main() async {
     Workmanager().registerOneOffTask("fetchNotificationsTask_v3", "fetchNotifications");
 
     // Run the app with error catching
-    runApp(const BetterFeedback(child: MyApp()));
+    runApp(DevicePreview(
+    enabled: false,
+    builder: (context) => BetterFeedback(child: MyApp())));
   } catch (e) {
     // Log error to analytics (will auto-initialize Firebase if needed)
     analyticsService.logError(
@@ -62,7 +64,10 @@ void main() async {
 
     // Fallback to basic app if initialization fails
     print("Error during app initialization: $e");
-    runApp(MaterialApp(
+    runApp(DevicePreview(
+    enabled: false,
+    builder: (context) => MaterialApp(
+      debugShowCheckedModeBanner: false,
       home: Scaffold(
         body: Center(
           child: Column(
@@ -83,7 +88,7 @@ void main() async {
           ),
         ),
       ),
-    ));
+    )));
   }
 }
 
@@ -109,35 +114,29 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
 
-    checkVerify().then((value) {
-      isVerified = value;
-      print("isVerified: $isVerified");
+    // Load persisted theme preference
+    Localstorage.getData('theme_mode').then((val) {
+      if (val == 'light') themeNotifier.value = ThemeMode.light;
+      else themeNotifier.value = ThemeMode.dark;
     });
 
-    // Record app start time for session tracking
+    checkVerify().then((value) {
+      isVerified = value;
+    });
+
     appStartTime = DateTime.now();
-
-    // Initialize Firebase Analytics observer
     _initializeAnalyticsObserver();
-
-    // Track app open event and session start
     analyticsService.logAppOpen();
     analyticsService.logSessionStart();
 
-    // Safely call the schedule method
     try {
-
       scheduleTaskFor6PM();
     } catch (e) {
-      print("Error in scheduleTaskFor6PM: $e");
       analyticsService.logError(
           errorType: 'schedule_task_error', errorMessage: e.toString());
     }
 
-    // Initialize app links/deep links
     initAppLinks();
-
-    // Safely initialize Firebase
     _initializeFirebase();
   }
 
@@ -345,124 +344,101 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final List<NavigatorObserver> navigatorObservers = [routeObserver];
-     final screenSize = MediaQuery.of(context).size;
+    final screenSize = MediaQuery.of(context).size;
     final shortestSide = screenSize.shortestSide;
     final aspectRatio = screenSize.width / screenSize.height;
-
-    // Android TV typically has larger screens and different aspect ratios
-    var _isAndroidTV =
+    final bool isAndroidTV =
         Platform.isAndroid && (shortestSide > 600 || aspectRatio > 1.5);
 
-    // Add Firebase Analytics observer if available
-    if (observer != null) {
-      navigatorObservers.add(observer!);
-    }
+    if (observer != null) navigatorObservers.add(observer!);
 
-    // Show error screen if initialization failed
-    if (initFailed) {
-      analyticsService.logScreenView(screenName: 'error_screen');
-      return MaterialApp(
-          debugShowCheckedModeBanner: false,
-          theme: ThemeData(
-            primarySwatch: Colors.blue,
-            visualDensity: VisualDensity.adaptivePlatformDensity,
-          ),
-          home: Scaffold(
-            body: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.error_outline, size: 80, color: Colors.red),
-                  SizedBox(height: 20),
-                  Text(
-                    'Unable to initialize Firebase',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  SizedBox(height: 16),
-                  Text(
-                    'Please check your connection and restart the app',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 16),
-                  ),
-                  SizedBox(height: 30),
-                  ElevatedButton(
-                    onPressed: () {
-                      analyticsService.logUserEngagement(
-                          engagementType: 'button_click',
-                          parameters: {'button': 'retry_firebase_init'});
-                      _initializeFirebase();
-                    },
-                    child: Text('Retry'),
-                  )
-                ],
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: themeNotifier,
+      builder: (context, themeMode, _) {
+        if (initFailed) {
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.light,
+            darkTheme: AppTheme.dark,
+            themeMode: themeMode,
+            home: Scaffold(
+              body: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.error_outline, size: 80, color: Colors.red),
+                    const SizedBox(height: 20),
+                    const Text('Unable to initialize Firebase',
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 16),
+                    const Text('Please check your connection and restart the app',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 16)),
+                    const SizedBox(height: 30),
+                    ElevatedButton(
+                      onPressed: () {
+                        analyticsService.logUserEngagement(
+                            engagementType: 'button_click',
+                            parameters: {'button': 'retry_firebase_init'});
+                        _initializeFirebase();
+                      },
+                      child: const Text('Retry'),
+                    )
+                  ],
+                ),
               ),
             ),
-          ));
-    }
+          );
+        }
 
-    if (spalse_screen) {
-      analyticsService.logScreenView(screenName: 'splash_screen');
-      return MaterialApp(
-          debugShowCheckedModeBanner: false,
-          theme: ThemeData(
-            primarySwatch: Colors.blue,
-            visualDensity: VisualDensity.adaptivePlatformDensity,
-          ),
-          home: Scaffold(
-            body: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Image.asset(
-                    'asserts/logo.png', // Replace with your app icon path
-                    width: 100,
-                    height: 100,
-                  ),
-                  SizedBox(height: 20),
-                  Text(
-                    'Serial Stream', // Replace with your app name
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                  ),
-                  SizedBox(height: 20),
-                  CircularProgressIndicator(),
-                  SizedBox(height: 20),
-                  Text(
-                    'Loading...',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  SizedBox(height: 40),
-                  Text(
-                    'Made with ❤️ by @somnathdashs',
-                    style:
-                        theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
-                  )
-                ],
+        if (spalse_screen) {
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.light,
+            darkTheme: AppTheme.dark,
+            themeMode: themeMode,
+            home: Scaffold(
+              body: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Image.asset('asserts/logo.png', width: 100, height: 100),
+                    const SizedBox(height: 20),
+                    const Text('Serial Stream',
+                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 20),
+                    const CircularProgressIndicator(),
+                    const SizedBox(height: 20),
+                    const Text('Loading...',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 40),
+                    Text('Made with ❤️ by @somnathdashs',
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodySmall
+                            ?.copyWith(color: Colors.grey)),
+                  ],
+                ),
               ),
             ),
-          ));
-    } else {
-      analyticsService.logScreenView(screenName: 'main_app');
-      if (!isVerified) {
+          );
+        }
+
+        analyticsService.logScreenView(screenName: 'main_app');
         return MaterialApp(
           debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: themeMode,
           onGenerateRoute: AppRoutes.generateRoute,
-          home:_isAndroidTV?MyHomePage(): VerifyScreen(),
+          home: isAndroidTV
+              ? const MyHomePage()
+              : (!isVerified ?  VerifyScreen() : const MyHomePage()),
           navigatorKey: navigatorKey,
-          // Add the analytics observers for navigation tracking
           navigatorObservers: navigatorObservers,
         );
-      } else {
-        return MaterialApp(
-          debugShowCheckedModeBanner: false,
-          onGenerateRoute: AppRoutes.generateRoute,
-          home: MyHomePage(),
-          navigatorKey: navigatorKey,
-          // Add the analytics observers for navigation tracking
-          navigatorObservers: navigatorObservers,
-        );
-      }
-    }
+      },
+    );
   }
 }

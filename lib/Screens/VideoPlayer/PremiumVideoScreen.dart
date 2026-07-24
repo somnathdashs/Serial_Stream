@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:better_player_plus/better_player_plus.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:chewie/chewie.dart';
@@ -7,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:serial_stream/Background.dart';
 import 'package:serial_stream/Variable.dart';
+import 'package:serial_stream/LocalStorage.dart';
 import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -19,6 +21,7 @@ class PremiumVideoScreen extends StatefulWidget {
   final String channel;
   final List epishodesQueue;
   final String VideoUrl;
+  final String? parentShowTitle;
 
   PremiumVideoScreen(
       {required this.VideoUrl,
@@ -26,7 +29,8 @@ class PremiumVideoScreen extends StatefulWidget {
       required this.epishodeName,
       required this.showImageUrl,
       required this.channel,
-      required this.epishodesQueue});
+      required this.epishodesQueue,
+      this.parentShowTitle});
   @override
   _PremiumVideoScreenState createState() => _PremiumVideoScreenState();
 }
@@ -36,6 +40,8 @@ class _PremiumVideoScreenState extends State<PremiumVideoScreen>
   late BetterPlayerController _betterPlayerController;
   String EpeDate = "";
   bool AutoPlay = true;
+  int _currentPage = 0;
+  static const int _itemsPerPage = 10;
 
   @override
   void initState() {
@@ -45,6 +51,20 @@ class _PremiumVideoScreenState extends State<PremiumVideoScreen>
 
     // Keep screen awake while video is playing
     WakelockPlus.enable();
+
+    if (widget.epishodeUrl.isNotEmpty) {
+      final episodeItem = jsonEncode({
+        "type": "episode",
+        "url": widget.epishodeUrl,
+        "title": widget.epishodeName,
+        "imageUrl": widget.showImageUrl,
+        "channel": widget.channel,
+        "parentShowTitle": widget.parentShowTitle ?? "",
+        "timestamp": DateTime.now().millisecondsSinceEpoch,
+        "epishodesQueue": widget.epishodesQueue,
+      });
+      Localstorage.addHistory(episodeItem);
+    }
 
     if (widget.epishodeName.isNotEmpty) {
       // Extract date from the title
@@ -91,7 +111,8 @@ class _PremiumVideoScreenState extends State<PremiumVideoScreen>
                   NextEpe["title"],
                   widget.showImageUrl,
                   NextEpeQue,
-                  widget.channel
+                  widget.channel,
+                  widget.parentShowTitle
                 ],
               );
             }
@@ -221,27 +242,104 @@ class _PremiumVideoScreenState extends State<PremiumVideoScreen>
               ),
             ),
             const SizedBox(height: 20),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                "Episodes Queue",
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black,
-                ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    "More Episodes",
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      const Text(
+                        "Auto Next",
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black54,
+                        ),
+                      ),
+                      Switch(
+                        value: AutoPlay,
+                        onChanged: (value) {
+                          setState(() {
+                            AutoPlay = value;
+                          });
+                        },
+                        activeColor: Colors.blue,
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 16),
-            SizedBox(
-              height: MediaQuery.of(context).size.height * 0.5, // Adjust height as needed
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: widget.epishodesQueue.length,
-                itemBuilder: (context, index) {
-                  return _buildShowCard(widget.epishodesQueue[index], index);
-                },
-              ),
+            Builder(
+              builder: (context) {
+                final totalEpisodes = widget.epishodesQueue.length;
+                final totalPages = (totalEpisodes / _itemsPerPage).ceil();
+                final startIndex = _currentPage * _itemsPerPage;
+                final endIndex = (startIndex + _itemsPerPage).clamp(0, totalEpisodes);
+                final displayedEpisodes = widget.epishodesQueue.sublist(startIndex, endIndex);
+
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      height: MediaQuery.of(context).size.height * 0.45,
+                      child: displayedEpisodes.isEmpty
+                          ? const Center(
+                              child: Text(
+                                "No more episodes in queue.",
+                                style: TextStyle(color: Colors.black54),
+                              ),
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              itemCount: displayedEpisodes.length,
+                              itemBuilder: (context, index) {
+                                return _buildShowCard(displayedEpisodes[index], startIndex + index);
+                              },
+                            ),
+                    ),
+                    if (totalPages > 1)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8.0),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.arrow_back_ios, color: Colors.black),
+                              onPressed: _currentPage > 0
+                                  ? () => setState(() => _currentPage--)
+                                  : null,
+                            ),
+                            Text(
+                              "Page ${_currentPage + 1} of $totalPages",
+                              style: const TextStyle(
+                                color: Colors.black87,
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.arrow_forward_ios, color: Colors.black),
+                              onPressed: _currentPage < totalPages - 1
+                                  ? () => setState(() => _currentPage++)
+                                  : null,
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                );
+              },
             ),
           ],
         ),
@@ -260,6 +358,7 @@ class _PremiumVideoScreenState extends State<PremiumVideoScreen>
                   widget.showImageUrl,
                   widget.epishodesQueue.sublist(idx + 1),
                   widget.channel,
+                  widget.parentShowTitle,
                 ]);
           }
         },

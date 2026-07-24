@@ -1,7 +1,8 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:serial_stream/Screens/VideoPlayer/PremiumVideoScreen_offline.dart';
+import 'package:serial_stream/Screens/VideoPlayer/ModernWebPlayer.dart';
 import 'package:video_player/video_player.dart';
 import 'package:intl/intl.dart';
 import 'package:serial_stream/Screens/VideoPlayer/Player.dart';
@@ -9,6 +10,7 @@ import 'package:flutter_file_downloader/flutter_file_downloader.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:serial_stream/Backend.dart';
+import 'package:serial_stream/LocalStorage.dart';
 
 class DownloadedVideoScreen extends StatefulWidget {
   const DownloadedVideoScreen({Key? key}) : super(key: key);
@@ -29,6 +31,13 @@ class _DownloadedVideoScreenState extends State<DownloadedVideoScreen> {
   @override
   void initState() {
     super.initState();
+    Localstorage.getData('download_is_grid_view').then((value) {
+      if (value is bool && mounted) {
+        setState(() {
+          _isGridView = value;
+        });
+      }
+    });
     _loadVideos();
   }
 
@@ -38,95 +47,70 @@ class _DownloadedVideoScreenState extends State<DownloadedVideoScreen> {
     });
 
     try {
-      // Clear the thumbnail cache when refreshing
       _thumbnailCache.clear();
-      
-      // Get app directory where videos are stored
-      final appDir = await getApplicationDocumentsDirectory();
-      final appFiles = Directory('${appDir.path}');
-      
-      List<Directory> directoriesToCheck = [appFiles];
-      
-      try {
-        // Also check external storage directory if available
-        final externalDir = await getExternalStorageDirectory();
-        if (externalDir != null) {
-          directoriesToCheck.add(externalDir);
-        }
-      } catch (e) {
-        print('External storage not available: $e');
-      }
-      
       _videos = [];
       _groupedVideos.clear();
-      
-      for (var directory in directoriesToCheck) {
-        if (!await directory.exists()) continue;
-        
-        final files = await directory.list(recursive: true).toList();
-        final videoFiles = files.where((file) => 
-          file.path.endsWith('.mp4') || 
-          file.path.endsWith('.mkv') || 
-          file.path.endsWith('.avi') ||
-          file.path.endsWith('.m4v') ||
-          file.path.endsWith('.mov')
-        ).toList();
-        
-        for (var file in videoFiles) {
-          final fileStats = await File(file.path).stat();
-          final fileName = file.path.split('/').last.split('\\').last; // Handle both path separators
-          final fileNameWithoutExt = fileName.split('.').first;
-          
-          // Skip files smaller than 1MB (likely not actual videos)
-          if (fileStats.size < 1024 * 1024) continue;
-          
-          // Initialize VideoPlayerController to get video duration
-          VideoPlayerController? videoPlayerController;
-          Duration duration = Duration.zero;
-          
-          try {
-            videoPlayerController = VideoPlayerController.file(File(file.path));
-            await videoPlayerController.initialize();
-            duration = videoPlayerController.value.duration;
-          } catch (e) {
-            print('Error initializing video player: $e');
-          } finally {
-            if (videoPlayerController != null) {
-              await videoPlayerController.dispose();
-            }
+
+      final list = await Localstorage.getDownloads();
+      for (final item in list) {
+        try {
+          final data = jsonDecode(item);
+          final localPath = data["localPath"] as String;
+          final title = data["title"] as String;
+          final imageUrl = data["imageUrl"] as String? ?? "";
+          final timestampInt = data["timestamp"] as int? ?? DateTime.now().millisecondsSinceEpoch;
+          final date = DateTime.fromMillisecondsSinceEpoch(timestampInt);
+          final resolution = data["resolution"] as String? ?? "Original";
+
+          final file = File(localPath);
+          if (!await file.exists()) {
+            continue;
           }
-          
-          // Skip if not a valid video file
-          if (duration == Duration.zero) continue;
+
+          int sizeInBytes = 0;
+          try {
+            if (localPath.endsWith('.m3u8')) {
+              final dir = file.parent;
+              if (await dir.exists()) {
+                await for (final entity in dir.list(recursive: true)) {
+                  if (entity is File) {
+                    sizeInBytes += await entity.length();
+                  }
+                }
+              } else {
+                sizeInBytes = await file.length();
+              }
+            } else {
+              sizeInBytes = await file.length();
+            }
+          } catch (_) {
+            sizeInBytes = await file.length();
+          }
 
           final videoInfo = {
-            'path': file.path,
-            'name': fileNameWithoutExt,
-            'size': _formatFileSize(fileStats.size),
-            'date': fileStats.modified,
-            'dateFormatted': DateFormat('dd MMM yyyy').format(fileStats.modified),
-            'duration': _formatDuration(duration),
+            'path': localPath,
+            'name': title,
+            'size': _formatFileSize(sizeInBytes),
+            'date': date,
+            'dateFormatted': DateFormat('dd MMM yyyy').format(date),
+            'duration': resolution,
+            'imageUrl': imageUrl,
           };
 
           _videos.add(videoInfo);
 
-          // Group videos by date
-          final dateKey = DateFormat('yyyy-MM-dd').format(fileStats.modified);
+          final dateKey = DateFormat('yyyy-MM-dd').format(date);
           if (!_groupedVideos.containsKey(dateKey)) {
             _groupedVideos[dateKey] = [];
           }
           _groupedVideos[dateKey]!.add(videoInfo);
-        }
+        } catch (_) {}
       }
 
-      // Sort videos by date (newest first)
       _videos.sort((a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime));
-      
-      // Sort grouped video dates
       _groupedVideos.forEach((key, videos) {
         videos.sort((a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime));
       });
-
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error loading videos: $e')),
@@ -203,9 +187,13 @@ class _DownloadedVideoScreenState extends State<DownloadedVideoScreen> {
           final file = File(filePath);
           if (await file.exists()) {
             await file.delete();
-            // Clear any cached thumbnails for this video
-            _thumbnailCache.removeWhere((key, value) => key.startsWith('$filePath-'));
           }
+          final parentDir = file.parent;
+          if (parentDir.path.contains('/m3u8_') && await parentDir.exists()) {
+            await parentDir.delete(recursive: true);
+          }
+          await Localstorage.removeDownload(filePath);
+          _thumbnailCache.removeWhere((key, value) => key.startsWith('$filePath-'));
         }
         
         ScaffoldMessenger.of(context).showSnackBar(
@@ -213,7 +201,7 @@ class _DownloadedVideoScreenState extends State<DownloadedVideoScreen> {
         );
         
         _exitSelectionMode();
-        _loadVideos(); // Refresh the list
+        _loadVideos();
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error deleting videos: $e')),
@@ -250,15 +238,17 @@ class _DownloadedVideoScreenState extends State<DownloadedVideoScreen> {
       final file = File(filePath);
       if (await file.exists()) {
         await file.delete();
-        
-        // Clear any cached thumbnails for this video
-        _thumbnailCache.removeWhere((key, value) => key.startsWith('$filePath-'));
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Video deleted successfully')),
-        );
-        _loadVideos(); // Refresh the list
       }
+      final parentDir = file.parent;
+      if (parentDir.path.contains('/m3u8_') && await parentDir.exists()) {
+        await parentDir.delete(recursive: true);
+      }
+      await Localstorage.removeDownload(filePath);
+      _thumbnailCache.removeWhere((key, value) => key.startsWith('$filePath-'));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Video deleted successfully')),
+      );
+      _loadVideos();
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error deleting video: $e')),
@@ -297,25 +287,24 @@ class _DownloadedVideoScreenState extends State<DownloadedVideoScreen> {
       Navigator.push(
         context, 
         MaterialPageRoute(
-          builder: (context) => PremiumVideoScreen_Offline(
-            videoFilePath: video['path'],
-            epishodeName: video['name'],
+          builder: (context) => EnhancedVideoPlayerScreen(
+            localVideoPath: video['path'],
+            title: video['name'],
+            showImageUrl: video['imageUrl'],
           ),
         ),
       );
     }
   }
 
-  Widget _buildVideoThumbnail(String videoPath, String videoName) {
-    // Check if thumbnail is already in cache
+  Widget _buildVideoThumbnail(String videoPath, String videoName, String imageUrl) {
     final cacheKey = '$videoPath-$videoName';
     if (_thumbnailCache.containsKey(cacheKey)) {
       return _thumbnailCache[cacheKey]!;
     }
     
     return FutureBuilder<Widget>(
-      future: _generateThumbnail(videoPath, videoName: videoName).then((thumbnail) {
-        // Store in cache for future use
+      future: _generateThumbnail(videoPath, imageUrl, videoName: videoName).then((thumbnail) {
         _thumbnailCache[cacheKey] = thumbnail;
         return thumbnail;
       }),
@@ -325,8 +314,8 @@ class _DownloadedVideoScreenState extends State<DownloadedVideoScreen> {
           return snapshot.data!;
         } else {
           return Container(
-            color: Colors.grey[300],
-            child: Center(
+            color: Colors.grey[900],
+            child: const Center(
               child: CircularProgressIndicator(),
             ),
           );
@@ -335,28 +324,54 @@ class _DownloadedVideoScreenState extends State<DownloadedVideoScreen> {
     );
   }
 
-  Future<Widget> _generateThumbnail(String videoPath, {String? videoName}) async {
+  Future<Widget> _generateThumbnail(String videoPath, String imageUrl, {String? videoName}) async {
     try {
+      if (imageUrl.isNotEmpty && !imageUrl.contains("No-Image-Found")) {
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: CachedNetworkImage(
+                imageUrl: imageUrl,
+                fit: BoxFit.cover,
+                placeholder: (context, url) => Container(
+                  color: Colors.black87,
+                  child: const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
+                errorWidget: (context, url, error) => _buildDefaultThumbnail(),
+              ),
+            ),
+            Center(
+              child: Icon(
+                Icons.play_circle_fill,
+                color: Colors.white.withOpacity(0.7),
+                size: 50,
+              ),
+            ),
+          ],
+        );
+      }
       final fileName = videoPath.split('/').last.split('\\').last;
       final fileNameWithoutExt = fileName.split('.').first;
       final name = videoName ?? fileNameWithoutExt;
       
-      // First try to get image from web scraping
       try {
-        final imageUrl = await Backend.scrapeHDImage(name, '');
-        
-        if (imageUrl.isNotEmpty && !imageUrl.contains("No-Image-Found")) {
+        final imgUrl = await Backend.scrapeHDImage(name, '');
+        if (imgUrl.isNotEmpty && !imgUrl.contains("No-Image-Found")) {
           return Stack(
             fit: StackFit.expand,
             children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: CachedNetworkImage(
-                  imageUrl: imageUrl,
+                  imageUrl: imgUrl,
                   fit: BoxFit.cover,
                   placeholder: (context, url) => Container(
                     color: Colors.black,
-                    child: Center(
+                    child: const Center(
                       child: CircularProgressIndicator(),
                     ),
                   ),
@@ -373,9 +388,7 @@ class _DownloadedVideoScreenState extends State<DownloadedVideoScreen> {
             ],
           );
         }
-      } catch (e) {
-        print('Error fetching image: $e');
-      }
+      } catch (_) {}
       
       // If scraping fails, try to generate from video
       try {
@@ -480,7 +493,7 @@ class _DownloadedVideoScreenState extends State<DownloadedVideoScreen> {
               children: [
                 AspectRatio(
                   aspectRatio: 16 / 9,
-                  child: _buildVideoThumbnail(video['path'], video['name']),
+                  child: _buildVideoThumbnail(video['path'], video['name'], video['imageUrl'] ?? ''),
                 ),
                 Padding(
                   padding: const EdgeInsets.all(12.0),
@@ -624,7 +637,7 @@ class _DownloadedVideoScreenState extends State<DownloadedVideoScreen> {
               child: SizedBox(
                 width: 120,
                 height: 90,
-                child: _buildVideoThumbnail(video['path'], video['name']),
+                child: _buildVideoThumbnail(video['path'], video['name'], video['imageUrl'] ?? ''),
               ),
             ),
             Expanded(
@@ -780,6 +793,7 @@ class _DownloadedVideoScreenState extends State<DownloadedVideoScreen> {
                   onPressed: () {
                     setState(() {
                       _isGridView = !_isGridView;
+                      Localstorage.setData('download_is_grid_view', _isGridView);
                     });
                   },
                   tooltip: _isGridView ? 'List View' : 'Grid View',

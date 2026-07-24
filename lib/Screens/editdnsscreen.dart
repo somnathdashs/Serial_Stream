@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:io';
+import 'package:serial_stream/app_theme.dart';
 
 class DNSSetupScreen extends StatefulWidget {
   const DNSSetupScreen({Key? key}) : super(key: key);
@@ -89,9 +90,10 @@ class _DNSSetupScreenState extends State<DNSSetupScreen>
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
     final isLargeScreen = screenSize.width > 600;
+    final c = AppColors.of(context);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0E21),
+      backgroundColor: c.isDark ? const Color(0xFF0A0E21) : c.bg,
       body: SafeArea(
         child: FadeTransition(
           opacity: _fadeAnimation,
@@ -110,7 +112,7 @@ class _DNSSetupScreenState extends State<DNSSetupScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      _buildHeader(isLargeScreen),
+                      _buildHeader(isLargeScreen, c),
                       SizedBox(height: isLargeScreen ? 40 : 30),
                       _buildDeviceTypeIndicator(isLargeScreen),
                       SizedBox(height: isLargeScreen ? 20 : 15),
@@ -134,7 +136,7 @@ class _DNSSetupScreenState extends State<DNSSetupScreen>
     );
   }
 
-  Widget _buildHeader(bool isLargeScreen) {
+  Widget _buildHeader(bool isLargeScreen, AppColors c) {
     return Column(
       children: [
         Hero(
@@ -176,7 +178,7 @@ class _DNSSetupScreenState extends State<DNSSetupScreen>
           style: TextStyle(
             fontSize: isLargeScreen ? 36 : 28,
             fontWeight: FontWeight.bold,
-            color: Colors.white,
+            color: c.textPrimary,
             letterSpacing: 1.2,
           ),
         ),
@@ -185,7 +187,7 @@ class _DNSSetupScreenState extends State<DNSSetupScreen>
           'Android Setup Guide',
           style: TextStyle(
             fontSize: isLargeScreen ? 18 : 16,
-            color: Colors.white70,
+            color: c.textMuted,
             fontWeight: FontWeight.w300,
           ),
         ),
@@ -767,16 +769,17 @@ class _DNSSetupScreenState extends State<DNSSetupScreen>
   }
 
   void _showAndroidSettingsInstructions() {
+    final c = AppColors.of(context);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E2E),
+        backgroundColor: c.card,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
         ),
         title: Text(
           _isAndroidTV ? 'Android TV Settings' : 'Android Settings',
-          style: const TextStyle(color: Colors.white),
+          style: TextStyle(color: c.textPrimary),
         ),
         content: Text(
           _isAndroidTV
@@ -791,7 +794,7 @@ class _DNSSetupScreenState extends State<DNSSetupScreen>
                   'Settings → Network & Internet → Private DNS\n\n'
                   'Or:\n\n'
                   'Settings → Connections → More connection settings → Private DNS',
-          style: const TextStyle(color: Colors.white70),
+          style: TextStyle(color: c.textMuted),
         ),
         actions: [
           TextButton(
@@ -804,10 +807,11 @@ class _DNSSetupScreenState extends State<DNSSetupScreen>
   }
 
   void _showAndroidTVInstructions() {
+    final c = AppColors.of(context);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E2E),
+        backgroundColor: c.card,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
         ),

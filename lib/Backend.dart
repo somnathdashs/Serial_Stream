@@ -20,6 +20,22 @@ import 'package:share_plus/share_plus.dart';
 class Backend {
   static int trys = 0;
   static int maxtrys = 5;
+  static final Map<String, String> _scrapedShowImages = {};
+
+  static final Map<String, String> channelLogos = {
+    "Star Plus": "https://upload.wikimedia.org/wikipedia/en/d/d7/StarPlus_Logo.png",
+    "Zee TV": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/Zee_TV_2025.svg/1280px-Zee_TV_2025.svg.png",
+    "Sony TV": "https://upload.wikimedia.org/wikipedia/en/d/de/Sony_TV_new.png",
+    "Colors": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/19/Colors_TV_logo.svg/1280px-Colors_TV_logo.svg.png",
+    "Star Bharat": "https://upload.wikimedia.org/wikipedia/en/a/a7/Star_Bharat_Logo.png",
+    "Sab TV": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/SONY_SAB_SD_Logo_2022.png/1280px-SONY_SAB_SD_Logo_2022.png",
+    "And TV": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/33/%26TV_2025.svg/1280px-%26TV_2025.svg.png",
+  };
+
+  static String getChannelLogo(String channelName) {
+    return channelLogos[channelName] ?? "https://t4.ftcdn.net/jpg/04/70/29/97/360_F_470299797_UD0eoVMMSUbHCcNJCdv2t8B2g1GVqYgs.jpg";
+  }
+
   static HttpClient? createHttpClient() {
     try {
       final client = HttpClient()
@@ -122,16 +138,92 @@ class Backend {
     if (response.statusCode == 200) {
       trys = 0;
       dom.Document document = parser.parse(response.body);
-      final entryContent = document.querySelector("div.entry_content");
+
+      final entryContent = document.querySelector("div.entry-content") ??
+          document.querySelector("div.page-content") ??
+          document.querySelector("div#content");
 
       if (entryContent != null) {
-        final links = entryContent.querySelectorAll("a");
-        final extractedShows = links.map((link) {
-          final title = link.text.trim();
-          final href = link.attributes['href'] ?? '';
-          return {"title": title, "url": href};
-        }).toList();
-        extractedShows.removeAt(0);
+        final containers = entryContent.querySelectorAll("div.porto-sicon-wrapper");
+        if (containers.isNotEmpty) {
+          final extractedShows = <Map<String, String>>[];
+          for (final container in containers) {
+            final img = container.querySelector("img");
+            var imgUrl = img?.attributes['src'] ?? '';
+            if (imgUrl.isNotEmpty) {
+              if (imgUrl.startsWith('//')) {
+                imgUrl = 'https:' + imgUrl;
+              } else if (imgUrl.startsWith('/')) {
+                imgUrl = 'https://www.desi-serials.to' + imgUrl;
+              }
+            }
+
+            final links = container.querySelectorAll("a");
+            String? title;
+            String? url;
+            for (final link in links) {
+              final text = link.text.trim();
+              final href = link.attributes['href'] ?? '';
+              if (text.isNotEmpty) {
+                title = text;
+              }
+              if (href.isNotEmpty && href.contains('/watch-online/')) {
+                url = href;
+              }
+            }
+
+            if (title != null && title.isNotEmpty && url != null && url.isNotEmpty) {
+              if (imgUrl.isNotEmpty) {
+                _scrapedShowImages[title] = imgUrl;
+              }
+              extractedShows.add({"title": title, "url": url});
+            }
+          }
+          if (extractedShows.isNotEmpty) return extractedShows;
+        }
+
+        final h5Links = entryContent.querySelectorAll("h5 a");
+        if (h5Links.isNotEmpty) {
+          final extractedShows = <Map<String, String>>[];
+          for (final link in h5Links) {
+            final title = link.text.trim();
+            final href = link.attributes['href'] ?? '';
+            if (title.isNotEmpty &&
+                href.isNotEmpty &&
+                !href.endsWith('#completed') &&
+                !href.contains('#')) {
+              extractedShows.add({"title": title, "url": href});
+            }
+          }
+          if (extractedShows.isNotEmpty) return extractedShows;
+        }
+
+        final liLinks = entryContent.querySelectorAll("li.cat-item a");
+        if (liLinks.isNotEmpty) {
+          return liLinks
+              .map((link) {
+                return {
+                  "title": link.text.trim(),
+                  "url": link.attributes['href'] ?? ''
+                };
+              })
+              .where((s) => s["title"]!.isNotEmpty && s["url"]!.isNotEmpty)
+              .toList();
+        }
+
+        final allLinks = entryContent.querySelectorAll("a");
+        final extractedShows = allLinks
+            .map((link) {
+              final title = link.text.trim();
+              final href = link.attributes['href'] ?? '';
+              return {"title": title, "url": href};
+            })
+            .where((s) =>
+                s["title"]!.isNotEmpty &&
+                s["url"]!.isNotEmpty &&
+                !s["url"]!.contains('#') &&
+                s["url"]!.contains('/watch-online/'))
+            .toList();
         return extractedShows;
       }
       return [];
@@ -145,114 +237,186 @@ class Backend {
   }
 
   static Future<String?> ProImageExtracter(String query) async {
-    String? imageUrl;
-    Future<String?> GetImageUrl(String html) async {
-      final document = parser.parse(html);
+    final cleaned = query
+        .replaceAll(RegExp(r'\(.*?\)'), '')
+        .replaceAll(RegExp(r'\[.*?\]'), '')
+        .replaceAll(RegExp(r'[^\w\s]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
 
-      // Find the first card
-      final firstCard = document.querySelector('div.card.v4.tight');
-
-      if (firstCard != null) {
-        // Find the image tag inside the first card
-        final imgTag = firstCard.querySelector('img.poster.w-full');
-
-        // Extract the 'src' attribute
-        final imageUrl = imgTag?.attributes['src'];
-
-        if (imageUrl != null) {
-          var imagefile = imageUrl.split('/').last;
-          return HDIMAGEURL + imagefile;
-        }
-        return null;
-      }
-    }
+    if (cleaned.isEmpty) return null;
 
     try {
-      var result = await fetchHTMLdata(TVSearchebsite + query);
-      var TVSearchRes = await GetImageUrl(result.body);
-      if (TVSearchRes == null) {
-        var result = await fetchHTMLdata(TVSearchebsite + query);
-        var NSearchRes = await GetImageUrl(result.body);
-        imageUrl = TVSearchRes;
-      } else {
-        imageUrl = TVSearchRes;
+      final url = Uri.parse("https://api.tvmaze.com/singlesearch/shows?q=${Uri.encodeComponent(cleaned)}");
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final image = data['image'];
+        if (image != null) {
+          return image['original'] ?? image['medium'];
+        }
       }
     } catch (e) {
-      // Error extracting image URL
+      debugPrint("Error in ProImageExtracter: $e");
     }
-
-    return imageUrl;
+    return null;
   }
 
   static Future<String> GoogleSearchImage(String query) async {
-    String? imageUrl;
-    var cachceData =
-        await Localstorage.getData(Localstorage.ImagesUrls) ?? "{}";
-
-    cachceData = jsonDecode(cachceData);
-    if (cachceData.keys.contains(query)) {
-      return cachceData[query];
-    }
-    try {
-      final searchQuery = Uri.encodeComponent('$query FULL HD image');
-      final url =
-          Uri.parse('https://www.google.com/search?q=$searchQuery&tbm=isch');
-
-      final headers = Get_a_Header();
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final document = parser.parse(response.body);
-
-        // Extract image tags
-        final images = document.querySelectorAll('img');
-
-        for (var img in images.skip(1)) {
-          final src = img.attributes['src'];
-
-          if (src != null && src.startsWith('http')) {
-            if (src.contains("social") || src.contains("icon")) {
-              d.log(img.outerHtml.toString());
-            }
-            if (!src.contains("social") || !src.contains("icon")) {
-              cachceData[query] = src;
-              Localstorage.setData(
-                  Localstorage.ImagesUrls, jsonEncode(cachceData));
-              return src;
-            }
-          }
-        }
-      } else {
-        // Failed to load image search
+    for (final channelName in channelLogos.keys) {
+      if (query.toLowerCase().contains(channelName.toLowerCase())) {
+        return channelLogos[channelName]!;
       }
-    } catch (e) {
-      navigatorKey.currentState!.pushReplacement(
-        MaterialPageRoute(builder: (context) => const NoInternetScreen()),
-      );
     }
-    return "https://parinamlaw.com/wp-content/themes/lawcounsel/images/no-image/No-Image-Found-400x264.png";
+    return "https://t4.ftcdn.net/jpg/04/70/29/97/360_F_470299797_UD0eoVMMSUbHCcNJCdv2t8B2g1GVqYgs.jpg";
   }
 
-  static Future<String> scrapeHDImage(String show, String channel) async {
-    String? ImageUrl;
+  static Future<String> scrapeHDImage(String show, String channel, {String? showUrl}) async {
     var cachceData =
         await Localstorage.getData(Localstorage.ImagesUrls) ?? "{}";
     cachceData = jsonDecode(cachceData);
 
     if (cachceData.keys.contains(show)) {
-      return cachceData[show];
+      final cachedUrl = cachceData[show] as String;
+      if (cachedUrl.isNotEmpty &&
+          !cachedUrl.contains("no-image") &&
+          !cachedUrl.contains("No-Image-Found") &&
+          !cachedUrl.contains("no_image") &&
+          !cachedUrl.contains("placeholder") &&
+          !cachedUrl.contains("no-img")) {
+        return cachedUrl;
+      }
     }
-    var Img1 = await ProImageExtracter(show);
-    if (Img1 == null) {
-      var Img2 = await GoogleSearchImage(show + " show in " + channel);
-      ImageUrl = Img2;
-    } else {
-      ImageUrl = Img1;
-    }
-    cachceData[show] = ImageUrl;
-    Localstorage.setData(Localstorage.ImagesUrls, jsonEncode(cachceData));
 
-    return ImageUrl;
+    if (_scrapedShowImages.containsKey(show)) {
+      final url = _scrapedShowImages[show]!;
+      cachceData[show] = url;
+      await Localstorage.setData(Localstorage.ImagesUrls, jsonEncode(cachceData));
+      return url;
+    }
+
+    // Scrape from show page (float:right div img) — first priority after cache
+    if (showUrl != null && showUrl.isNotEmpty) {
+      final pageImg = await scrapeShowPageThumbnail(showUrl);
+      if (pageImg != null && pageImg.isNotEmpty) {
+        _scrapedShowImages[show] = pageImg;
+        cachceData[show] = pageImg;
+        await Localstorage.setData(Localstorage.ImagesUrls, jsonEncode(cachceData));
+        return pageImg;
+      }
+    }
+
+    var img = await ProImageExtracter(show);
+    if (img == null ||
+        img.isEmpty ||
+        img.contains("no-image") ||
+        img.contains("No-Image-Found") ||
+        img.contains("no_image") ||
+        img.contains("placeholder") ||
+        img.contains("no-img")) {
+      img = getChannelLogo(channel);
+    }
+
+    cachceData[show] = img;
+    await Localstorage.setData(Localstorage.ImagesUrls, jsonEncode(cachceData));
+    return img;
   }
+
+  /// Scrapes the WordPress show-page thumbnail from the float:right div.
+  static Future<String?> scrapeShowPageThumbnail(String showUrl) async {
+    try {
+      final response = await fetchHTMLdata(showUrl);
+      if (response.statusCode == 200) {
+        final document = parser.parse(response.body);
+        for (final div in document.querySelectorAll('div')) {
+          final style = div.attributes['style'] ?? '';
+          if (style.contains('float') && style.contains('right')) {
+            final img = div.querySelector('img');
+            if (img != null) {
+              final src = img.attributes['src'] ?? '';
+              if (src.isNotEmpty) return src;
+            }
+          }
+        }
+        // Fallback: WordPress attachment-medium class
+        final img = document.querySelector('img.attachment-medium');
+        if (img != null) {
+          final src = img.attributes['src'] ?? '';
+          if (src.isNotEmpty) return src;
+        }
+      }
+    } catch (e) {
+      debugPrint('scrapeShowPageThumbnail error: $e');
+    }
+    return null;
+  }
+
+  /// Fetches all episodes from /latest-episodes/ and caches their thumbnails.
+  static Future<List<Map<String, String>>> fetchLatestEpisodes() async {
+    try {
+      final response = await fetchHTMLdata('${Website}latest-episodes/');
+      if (response.statusCode != 200) return [];
+      final document = parser.parse(response.body);
+      final results = <Map<String, String>>[];
+
+      for (final article in document.querySelectorAll('article')) {
+        // Actual selector: h3.thumb-info-inner > a
+        final titleEl = article.querySelector('h3.thumb-info-inner a') ??
+            article.querySelector('h2.entry-title a');
+        if (titleEl == null) continue;
+        final title = titleEl.text.trim();
+        var url = titleEl.attributes['href'] ?? '';
+        if (title.isEmpty || url.isEmpty) continue;
+
+        if (url.isNotEmpty) {
+          if (!url.startsWith('http') && url.startsWith('/')) {
+            url = 'https://www.desi-serials.to$url';
+          }
+          if (url.contains('desi-serials.to') && !url.contains('/watch-online/')) {
+            url = url.replaceFirst('desi-serials.to/', 'desi-serials.to/watch-online/');
+          }
+        }
+
+        // Thumbnail: div.post-image img, src or data-oi (lazy-load)
+        var thumbnail = '';
+        final img = article.querySelector('div.post-image img') ??
+            article.querySelector('img');
+        if (img != null) {
+          thumbnail = img.attributes['src'] ??
+              img.attributes['data-oi'] ??
+              img.attributes['data-src'] ??
+              '';
+          if (thumbnail.startsWith('//')) thumbnail = 'https:$thumbnail';
+          else if (thumbnail.startsWith('/')) thumbnail = 'https://www.desi-serials.to$thumbnail';
+        }
+        if (thumbnail.isNotEmpty) _scrapedShowImages[title] = thumbnail;
+        results.add({'title': title, 'url': url});
+      }
+
+      if (results.isNotEmpty) return results;
+
+      // Fallback for alternate page layouts
+      return document.querySelectorAll('h2.entry-title a').map((a) {
+        var url = a.attributes['href'] ?? '';
+        if (url.isNotEmpty) {
+          if (!url.startsWith('http') && url.startsWith('/')) {
+            url = 'https://www.desi-serials.to$url';
+          }
+          if (url.contains('desi-serials.to') && !url.contains('/watch-online/')) {
+            url = url.replaceFirst('desi-serials.to/', 'desi-serials.to/watch-online/');
+          }
+        }
+        return {
+          'title': a.text.trim(),
+          'url': url,
+        };
+      }).where((m) => m['title']!.isNotEmpty && m['url']!.isNotEmpty).toList();
+    } catch (e) {
+      debugPrint('fetchLatestEpisodes error: $e');
+      return [];
+    }
+  }
+
 
   static Future<List> fetchEpisodes(String showurl) async {
     List<Map<String, String>> results = [];
@@ -264,12 +428,21 @@ class Backend {
       if (response.statusCode == 200) {
         final document = parser.parse(response.body);
 
-        // Select all <a> inside <h4> within .item_content
-        final episodeLinks = document.querySelectorAll('div.item_content h4 a');
+        // New site: desi-serials.to uses <h2 class="entry-title"><a href="...">Title</a></h2>
+        // for episode listings on show pages.
+        List<dom.Element> episodeLinks =
+            document.querySelectorAll('h2.entry-title a');
 
-        // Filter out links containing "preview" in their name
-        episodeLinks
-            .removeWhere((ep) => ep.text.toLowerCase().contains('preview'));
+        // Fallback: also try article heading links
+        if (episodeLinks.isEmpty) {
+          episodeLinks =
+              document.querySelectorAll('article h2 a, .post-title a');
+        }
+
+        // Filter out links containing "preview" or "promo" in their name
+        episodeLinks.removeWhere((ep) =>
+            ep.text.toLowerCase().contains('preview') ||
+            ep.text.toLowerCase().contains('promo'));
 
         for (dom.Element ep in episodeLinks) {
           final title = ep.text.trim();
@@ -307,35 +480,65 @@ class Backend {
       if (response.statusCode == 200) {
         final document = parser.parse(response.body);
 
-        // Iterate over all <li> inside <ul class="page-numbers">
-        final listItems = document.querySelectorAll('ul.page-numbers li');
+        // Select page numbers directly or nested within list items
+        var pageElements =
+            document.querySelectorAll('.pagination .page-numbers');
+        if (pageElements.isEmpty) {
+          pageElements = document.querySelectorAll('.page-numbers');
+        }
 
-        for (var li in listItems) {
-          // Skip if it contains a class with dots
-          if (li.querySelector('.dots') != null) {
-            continue;
-          }
+        if (pageElements.isNotEmpty) {
+          for (var element in pageElements) {
+            if (element.classes.contains('dots') ||
+                element.querySelector('.dots') != null) {
+              continue;
+            }
 
-          // If it's the current page (e.g. <span class="current">1</span>)
-          final current = li.querySelector('span.current');
-          if (current != null) {
-            pages.add({
-              "text": current.text.trim(),
-              "url": null,
-              "current": true,
-            });
-          } else {
-            // Otherwise, get <a> link
-            final a = li.querySelector('a');
-            if (a != null) {
-              final text = a.text.trim().isNotEmpty
-                  ? a.text.trim()
-                  : (a.classes.isNotEmpty ? a.classes.first : '');
+            final isCurrent = element.classes.contains('current') ||
+                element.querySelector('span.current') != null;
+            if (isCurrent) {
+              pages.add({
+                "text": element.text.trim(),
+                "url": null,
+                "current": true,
+              });
+            } else if (element.localName == 'a') {
+              final text = element.text.trim().isNotEmpty
+                  ? element.text.trim()
+                  : (element.classes.isNotEmpty ? element.classes.first : '');
               pages.add({
                 "text": text,
-                "url": a.attributes['href'],
+                "url": element.attributes['href'],
                 "current": false,
               });
+            }
+          }
+        } else {
+          final listItems = document.querySelectorAll('ul.page-numbers li');
+          for (var li in listItems) {
+            if (li.querySelector('.dots') != null) {
+              continue;
+            }
+
+            final current = li.querySelector('span.current');
+            if (current != null) {
+              pages.add({
+                "text": current.text.trim(),
+                "url": null,
+                "current": true,
+              });
+            } else {
+              final a = li.querySelector('a');
+              if (a != null) {
+                final text = a.text.trim().isNotEmpty
+                    ? a.text.trim()
+                    : (a.classes.isNotEmpty ? a.classes.first : '');
+                pages.add({
+                  "text": text,
+                  "url": a.attributes['href'],
+                  "current": false,
+                });
+              }
             }
           }
         }
@@ -383,9 +586,26 @@ class Backend {
         return [];
       }
       final document = parser.parse(response.body);
-      final entryContentDiv = document.querySelector("div.entry_content");
+
+      // New site uses div.entry-content (with hyphen, not underscore)
+      final entryContentDiv = document.querySelector("div.entry-content") ??
+          document.querySelector("div.entry_content") ??
+          document.querySelector("div.page-content") ??
+          document.querySelector("div#content");
 
       if (entryContentDiv != null) {
+        // Prefer tvarticles.org links (video wrapper links specific to this site)
+        final tvarticlesUrls = entryContentDiv
+            .querySelectorAll('a[href*="tvarticles.org"]')
+            .map((a) => a.attributes['href'] ?? '')
+            .where((href) => href.isNotEmpty)
+            .toList();
+
+        if (tvarticlesUrls.isNotEmpty) {
+          return tvarticlesUrls;
+        }
+
+        // Fallback: get all links in entry content
         final urls = entryContentDiv
             .querySelectorAll('a[href]')
             .map((a) => a.attributes['href'] ?? '')
@@ -414,36 +634,81 @@ class Backend {
 
       if (response.statusCode == 200) {
         final document = parser.parse(response.body);
-        // Find all sections with class 'colm'
-        final sections = document.querySelectorAll('div.colm');
-        for (var section in sections) {
-          // Extract channel name
-          final channelNameElement = section.querySelector('strong');
-          final channelName = channelNameElement?.text.trim() ?? '';
 
-          // Extract channel image
-          final imgTag = section.querySelector('img');
-          final channelImage = imgTag?.attributes['src']?.trim() ?? '';
+        // New site (desi-serials.to): The homepage lists shows per channel
+        // in custom menu widget blocks. Each channel section has a heading
+        // and a <ul class="menu"> with <li><a> items.
+        //
+        // Strategy: find all <ul class="menu"> blocks inside the main content
+        // and group their links as shows.
+        final menuBlocks = document.querySelectorAll('ul.menu');
 
-          // Extract shows and links
+        for (var menu in menuBlocks) {
+          final liItems = menu.querySelectorAll('li > a');
+          if (liItems.isEmpty) continue;
+
+          // Use parent heading as channel name if available
+          String channelName = '';
+          final parentWidget = menu.parent;
+          if (parentWidget != null) {
+            final heading =
+                parentWidget.querySelector('h2, h3, h4, strong, .widget-title');
+            channelName = heading?.text.trim() ?? '';
+          }
+
           List<Map<String, String>> shows = [];
-          final showList = section.querySelectorAll('li.cat-item');
-          for (var item in showList) {
-            final showNameElement = item.querySelector('a');
-            final showName = showNameElement?.text.trim() ?? '';
-            final showLink = showNameElement?.attributes['href']?.trim() ?? '';
-
-            if (showName.isNotEmpty && showLink.isNotEmpty) {
+          for (var li in liItems) {
+            final showName = li.text.trim();
+            final showLink = li.attributes['href']?.trim() ?? '';
+            if (showName.isNotEmpty &&
+                showLink.isNotEmpty &&
+                showLink.contains('/watch-online/')) {
               shows.add({'name': showName, 'link': showLink});
             }
           }
 
-          channels.add({
-            'channel_name': channelName,
-            'channel_image': Website + channelImage,
-            'shows': shows,
-          });
+          if (shows.isNotEmpty) {
+            channels.add({
+              'channel_name': channelName,
+              'channel_image': '',
+              'shows': shows,
+            });
+          }
         }
+
+        if (channels.isEmpty) {
+          // Fallback: parse homepage h2 headings + following lists
+          final sections = document.querySelectorAll('h2');
+          for (var heading in sections) {
+            final channelName = heading.text.trim();
+            if (channelName.isEmpty) continue;
+
+            List<Map<String, String>> shows = [];
+            // Find the next sibling ul
+            dom.Element? sibling = heading.nextElementSibling;
+            while (sibling != null && sibling.localName != 'h2') {
+              final links = sibling.querySelectorAll('a');
+              for (var a in links) {
+                final name = a.text.trim();
+                final link = a.attributes['href'] ?? '';
+                if (name.isNotEmpty &&
+                    link.isNotEmpty &&
+                    link.contains('/watch-online/')) {
+                  shows.add({'name': name, 'link': link});
+                }
+              }
+              sibling = sibling.nextElementSibling;
+            }
+            if (shows.isNotEmpty) {
+              channels.add({
+                'channel_name': channelName,
+                'channel_image': '',
+                'shows': shows
+              });
+            }
+          }
+        }
+
         return channels;
       } else {
         if (trys < maxtrys) {
@@ -466,10 +731,7 @@ class Backend {
       var ALLresults = [];
       var client = createHttpClient();
       if (client == null) {
-        return {
-          "status": false,
-          "data": []
-        };
+        return {"status": false, "data": []};
       }
       final ioClient = IOClient(client);
       final response = await ioClient.get(Uri.parse(Url), headers: header);
@@ -477,14 +739,17 @@ class Backend {
         trys = 0;
         final document = parser.parse(response.body);
         // Select all <a> inside <h4> within .item_content
-        final episodeLinks = document.querySelectorAll('div.item_content h4 a');
-        // Filter out links containing "preview" in their name
-        episodeLinks
-            .removeWhere((ep) => ep.text.toLowerCase().contains('preview'));
+        // New site: desi-serials.to uses h2.entry-title a for episodes
+        final episodeLinks = document.querySelectorAll('h2.entry-title a');
+        // Filter out links containing "preview" or "promo" in their name
+        episodeLinks.removeWhere((ep) =>
+            ep.text.toLowerCase().contains('preview') ||
+            ep.text.toLowerCase().contains('promo'));
         for (dom.Element ep in episodeLinks) {
           var title = ep.text.trim();
           final href = ep.attributes['href'] ?? '';
-          if (title.toLowerCase().contains('preview')) {
+          if (title.toLowerCase().contains('preview') ||
+              title.toLowerCase().contains('promo')) {
             continue;
           }
           ALLresults.add({

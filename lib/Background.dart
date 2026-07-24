@@ -146,11 +146,41 @@ Future<void> fetchAndShowNotifications() async {
     var value =
         Not_Notify.isNotEmpty ? List.from(Not_Notify) : List.from(_value);
     
+    bool updated = false;
 
     for (var i = 0; i < value.length; i++) {
       var data = jsonDecode(value[i]);
-      var notification = await Backend.fetchNotification(data["url"]);
+      var url = data["url"]?.toString() ?? "";
+      
+      // Auto-migrate domain
+      if (url.contains("desitellybox.to")) {
+        url = url.replaceAll("desitellybox.to", "desi-serials.to").replaceAll("/category/", "/watch-online/");
+      }
+      
+      var notification = await Backend.fetchNotification(url);
       print("HII $notification");
+
+      if (!notification["status"]) {
+        final channelObj = Channels.firstWhere(
+          (c) => c["name"]?.toLowerCase() == data["channel"]?.toLowerCase(),
+          orElse: () => {},
+        );
+        final channelUrl = channelObj["url"];
+        if (channelUrl != null && channelUrl.isNotEmpty) {
+          final showsList = await Backend.fetchShows(channelUrl);
+          final matchedShow = showsList.firstWhere(
+            (s) => s["title"]?.toString().toLowerCase().trim() == data["name"]?.toString().toLowerCase().trim(),
+            orElse: () => null,
+          );
+          if (matchedShow != null && matchedShow["url"] != null) {
+            url = matchedShow["url"];
+            data["url"] = url;
+            value[i] = jsonEncode(data);
+            updated = true;
+            notification = await Backend.fetchNotification(url);
+          }
+        }
+      }
 
       if (notification["status"]) {
         var allEpisodes = notification["all"] as List;
@@ -194,6 +224,9 @@ Future<void> fetchAndShowNotifications() async {
           Not_Notify.add(jsonEncode(data));
         }
       }
+    }
+    if (updated) {
+      await Localstorage.setData(Localstorage.Subscribe, value.cast<String>());
     }
   } catch (e) {
     // Error

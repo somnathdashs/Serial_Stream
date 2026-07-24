@@ -12,12 +12,16 @@ class ServersList extends StatefulWidget {
   final String showImageUrl;
   final String channel;
   final List epishodesQueue;
+  final String? parentShowTitle;
+  final String? showMainUrl;
   const ServersList({
     required this.epishodeUrl,
     required this.epishodeName,
     required this.showImageUrl,
     required this.channel,
     required this.epishodesQueue,
+    this.parentShowTitle,
+    this.showMainUrl,
   });
 
   @override
@@ -38,19 +42,26 @@ class _ServersListState extends State<ServersList> {
         _loading = true;
       });
       List<String> fetchedUrls = [];
-      var showsUrls =
-          await Localstorage.getData(Localstorage.ShowsCacheMemo) ?? "{}";
-      showsUrls = jsonDecode(showsUrls);
+      final bool isDirectServerUrl = !widget.epishodeUrl.contains('/watch-online/') &&
+                                     !widget.epishodeUrl.contains('desi-serials.to');
 
-      if (showsUrls.keys.contains(widget.epishodeUrl)) {
-        fetchedUrls = List<String>.from(showsUrls[widget.epishodeUrl]);
+      if (isDirectServerUrl) {
+        fetchedUrls = [widget.epishodeUrl];
       } else {
-        fetchedUrls = await Backend.extractEntryContentUrls(
-            widget.epishodeUrl, Backend.Get_a_Header());
-        if (fetchedUrls.isNotEmpty) {
-          showsUrls[widget.epishodeUrl] = fetchedUrls;
-          Localstorage.setData(
-              Localstorage.ShowsCacheMemo, jsonEncode(showsUrls));
+        var showsUrls =
+            await Localstorage.getData(Localstorage.ShowsCacheMemo) ?? "{}";
+        showsUrls = jsonDecode(showsUrls);
+
+        if (showsUrls.keys.contains(widget.epishodeUrl)) {
+          fetchedUrls = List<String>.from(showsUrls[widget.epishodeUrl]);
+        } else {
+          fetchedUrls = await Backend.extractEntryContentUrls(
+              widget.epishodeUrl, Backend.Get_a_Header());
+          if (fetchedUrls.isNotEmpty) {
+            showsUrls[widget.epishodeUrl] = fetchedUrls;
+            Localstorage.setData(
+                Localstorage.ShowsCacheMemo, jsonEncode(showsUrls));
+          }
         }
       }
 
@@ -72,12 +83,63 @@ class _ServersListState extends State<ServersList> {
       setState(() {
         _loading = false;
       });
+      _autoClickServer();
     } catch (e) {
       setState(() {
         error = e.toString();
         _loading = false;
       });
       return;
+    }
+  }
+
+  Future<void> _autoClickServer() async {
+    try {
+      final lastServer = await Localstorage.getData('last_selected_server');
+      if (lastServer != null && lastServer is String) {
+        for (int i = 0; i < ServersList.length; i++) {
+          final index = i + 1;
+          final server = ServersList[i];
+          final isVkPrimeServer = server.contains('vkprime');
+          final serverTitle = isVkPrimeServer
+              ? 'Play Premium Video'
+              : 'Server $index';
+          
+          if (serverTitle == lastServer) {
+            if (!mounted) return;
+            if (isVkPrimeServer) {
+              Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => Player(
+                        epishodeUrl: widget.epishodeUrl,
+                        epishodeName: widget.epishodeName,
+                        showImageUrl: widget.showImageUrl,
+                        channel: widget.channel,
+                        epishodesQueue: widget.epishodesQueue,
+                        parentShowTitle: widget.parentShowTitle),
+                  ));
+            } else {
+              Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => M3U8WebViewScanner(
+                        initialUrl: server,
+                        epishodeName: widget.epishodeName,
+                        showImageUrl: widget.showImageUrl,
+                        epishodesQueue: widget.epishodesQueue,
+                        channel: widget.channel,
+                        parentShowTitle: widget.parentShowTitle,
+                        epishodePageUrl: widget.epishodeUrl,
+                        showMainUrl: widget.showMainUrl),
+                  ));
+            }
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      print('Auto click error: $e');
     }
   }
 
@@ -175,6 +237,11 @@ class _ServersListState extends State<ServersList> {
                               overflow: TextOverflow.ellipsis,
                             ),
                             onTap: () {
+                              final serverTitle = isVkPrimeServer
+                                  ? 'Play Premium Video'
+                                  : 'Server ${index}';
+                              Localstorage.setData('last_selected_server', serverTitle);
+
                               if (isVkPrimeServer) {
                                 Navigator.push(
                                     context,
@@ -184,8 +251,8 @@ class _ServersListState extends State<ServersList> {
                                           epishodeName: widget.epishodeName,
                                           showImageUrl: widget.showImageUrl,
                                           channel: widget.channel,
-                                          epishodesQueue:
-                                              widget.epishodesQueue),
+                                          epishodesQueue: widget.epishodesQueue,
+                                          parentShowTitle: widget.parentShowTitle),
                                     ));
                                 return;
                               }
@@ -198,8 +265,10 @@ class _ServersListState extends State<ServersList> {
                                         epishodeName: widget.epishodeName,
                                         showImageUrl: widget.showImageUrl,
                                         epishodesQueue: widget.epishodesQueue,
-                                        channel: widget.channel
-                                        ),
+                                        channel: widget.channel,
+                                        parentShowTitle: widget.parentShowTitle,
+                                        epishodePageUrl: widget.epishodeUrl,
+                                        showMainUrl: widget.showMainUrl),
                                   ));
                               // Handle server selection
                             },

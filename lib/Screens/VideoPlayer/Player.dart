@@ -16,6 +16,7 @@ class Player extends StatefulWidget {
   final String showImageUrl;
   final String channel;
   final List epishodesQueue;
+  final String? parentShowTitle;
 
   Player({
     required this.epishodeUrl,
@@ -23,6 +24,7 @@ class Player extends StatefulWidget {
     required this.showImageUrl,
     required this.channel,
     required this.epishodesQueue,
+    this.parentShowTitle,
   });
 
   static void loadVideo(epishodeUrl) async {
@@ -200,7 +202,8 @@ class _PlayerState extends State<Player> {
                 epishodeName: widget.epishodeName,
                 showImageUrl: widget.showImageUrl,
                 channel: widget.channel,
-                epishodesQueue: widget.epishodesQueue)));
+                epishodesQueue: widget.epishodesQueue,
+                parentShowTitle: widget.parentShowTitle)));
   }
 
   @override

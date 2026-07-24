@@ -1,4 +1,5 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 
 class Localstorage {
   static const String Favorites = "favorites";
@@ -10,6 +11,40 @@ class Localstorage {
   static const String LastVerifyDate = "LastVerifyDate";
   static const String isAdmin = "isAdmin";
   static const String isOpened = "isOpened";
+  static const String History = "History";
+  static const String Downloads = "Downloads";
+
+  static Future<void> addHistory(String item) async {
+    final prefs = await SharedPreferences.getInstance();
+    final history = prefs.getStringList(History) ?? [];
+    try {
+      final itemData = jsonDecode(item);
+      final itemUrl = itemData["url"]?.toString().trim();
+      history.removeWhere((h) {
+        try {
+          final hData = jsonDecode(h);
+          return hData["url"]?.toString().trim() == itemUrl;
+        } catch (_) {
+          return false;
+        }
+      });
+    } catch (_) {}
+    history.insert(0, item);
+    if (history.length > 50) {
+      history.removeRange(50, history.length);
+    }
+    await prefs.setStringList(History, history);
+  }
+
+  static Future<List<String>> getHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(History) ?? [];
+  }
+
+  static Future<void> clearHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(History);
+  }
 
   static Future<void> setData(String key, dynamic value) async {
     final prefs = await SharedPreferences.getInstance();
@@ -79,7 +114,23 @@ class Localstorage {
   static Future<void> addSubscribe(String item) async {
     final prefs = await SharedPreferences.getInstance();
     final favorites = prefs.getStringList(Subscribe) ?? [];
-    if (!favorites.contains(item)) {
+    bool alreadyExists = false;
+    try {
+      final itemData = jsonDecode(item);
+      final itemName = itemData["name"]?.toString().toLowerCase().trim();
+      final itemChannel = itemData["channel"]?.toString().toLowerCase().trim();
+      for (final fav in favorites) {
+        try {
+          final favData = jsonDecode(fav);
+          if (favData["name"]?.toString().toLowerCase().trim() == itemName &&
+              favData["channel"]?.toString().toLowerCase().trim() == itemChannel) {
+            alreadyExists = true;
+            break;
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+    if (!alreadyExists && !favorites.contains(item)) {
       favorites.add(item);
       await prefs.setStringList(Subscribe, favorites);
     }
@@ -88,15 +139,45 @@ class Localstorage {
   static Future<void> removeSubscribe(String item) async {
     final prefs = await SharedPreferences.getInstance();
     final favorites = prefs.getStringList(Subscribe) ?? [];
-    if (favorites.contains(item)) {
-      favorites.remove(item);
+    try {
+      final itemData = jsonDecode(item);
+      final itemName = itemData["name"]?.toString().toLowerCase().trim();
+      final itemChannel = itemData["channel"]?.toString().toLowerCase().trim();
+      favorites.removeWhere((fav) {
+        try {
+          final favData = jsonDecode(fav);
+          return favData["name"]?.toString().toLowerCase().trim() == itemName &&
+                 favData["channel"]?.toString().toLowerCase().trim() == itemChannel;
+        } catch (_) {
+          return false;
+        }
+      });
       await prefs.setStringList(Subscribe, favorites);
+    } catch (_) {
+      if (favorites.contains(item)) {
+        favorites.remove(item);
+        await prefs.setStringList(Subscribe, favorites);
+      }
     }
   }
 
   static Future<bool> isSubscribe(String item) async {
     final prefs = await SharedPreferences.getInstance();
     final favorites = prefs.getStringList(Subscribe) ?? [];
+    try {
+      final itemData = jsonDecode(item);
+      final itemName = itemData["name"]?.toString().toLowerCase().trim();
+      final itemChannel = itemData["channel"]?.toString().toLowerCase().trim();
+      for (final fav in favorites) {
+        try {
+          final favData = jsonDecode(fav);
+          if (favData["name"]?.toString().toLowerCase().trim() == itemName &&
+              favData["channel"]?.toString().toLowerCase().trim() == itemChannel) {
+            return true;
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
     return favorites.contains(item);
   }
 
@@ -144,5 +225,43 @@ class Localstorage {
   static Future<dynamic> getData(String key) async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.get(key);
+  }
+
+  static Future<void> addDownload(String item) async {
+    final prefs = await SharedPreferences.getInstance();
+    final downloads = prefs.getStringList(Downloads) ?? [];
+    try {
+      final itemData = jsonDecode(item);
+      final itemUrl = itemData["url"]?.toString().trim();
+      downloads.removeWhere((d) {
+        try {
+          final dData = jsonDecode(d);
+          return dData["url"]?.toString().trim() == itemUrl;
+        } catch (_) {
+          return false;
+        }
+      });
+    } catch (_) {}
+    downloads.insert(0, item);
+    await prefs.setStringList(Downloads, downloads);
+  }
+
+  static Future<List<String>> getDownloads() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(Downloads) ?? [];
+  }
+
+  static Future<void> removeDownload(String localPath) async {
+    final prefs = await SharedPreferences.getInstance();
+    final downloads = prefs.getStringList(Downloads) ?? [];
+    downloads.removeWhere((d) {
+      try {
+        final dData = jsonDecode(d);
+        return dData["localPath"]?.toString().trim() == localPath.trim();
+      } catch (_) {
+        return false;
+      }
+    });
+    await prefs.setStringList(Downloads, downloads);
   }
 }

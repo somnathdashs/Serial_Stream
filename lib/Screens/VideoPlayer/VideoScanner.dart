@@ -60,6 +60,9 @@ class M3U8WebViewScanner extends StatefulWidget {
   final String showImageUrl;
   final String channel;
   final List epishodesQueue;
+  final String? parentShowTitle;
+  final String? epishodePageUrl;
+  final String? showMainUrl;
 
   const M3U8WebViewScanner({
     Key? key,
@@ -68,6 +71,9 @@ class M3U8WebViewScanner extends StatefulWidget {
     required this.showImageUrl,
     required this.channel,
     required this.epishodesQueue,
+    this.parentShowTitle,
+    this.epishodePageUrl,
+    this.showMainUrl,
   }) : super(key: key);
 
   @override
@@ -1145,6 +1151,12 @@ class _M3U8WebViewScannerState extends State<M3U8WebViewScanner>
             referer: urlInfo.referer, // Page referer
             userAgent: urlInfo.userAgent, // Browser user agent
             title: '${widget.epishodeName}',
+            epishodesQueue: widget.epishodesQueue,
+            showImageUrl: widget.showImageUrl,
+            channel: widget.channel,
+            epishodeUrl: widget.epishodePageUrl ?? widget.initialUrl,
+            parentShowTitle: widget.parentShowTitle,
+            showMainUrl: widget.showMainUrl,
           ),
         ),
       );

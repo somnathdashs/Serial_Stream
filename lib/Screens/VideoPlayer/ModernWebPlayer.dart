@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
@@ -11,9 +12,18 @@ import 'package:dio/dio.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:keep_screen_on/keep_screen_on.dart';
 import 'package:floating/floating.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:serial_stream/LocalStorage.dart';
+import 'package:serial_stream/Variable.dart';
+import 'package:serial_stream/Backend.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:serial_stream/UrlExtracterFromVKPrime.dart';
+import 'package:serial_stream/Screens/VideoPlayer/VideoScanner.dart';
+import 'package:awesome_notifications/awesome_notifications.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class EnhancedVideoPlayerScreen extends StatefulWidget {
-  final String videoUrl;
+  final String? videoUrl;
   final Map<String, String>? headers;
   final String? cookies;
   final String? authToken;
@@ -22,10 +32,17 @@ class EnhancedVideoPlayerScreen extends StatefulWidget {
   final String? title;
   final VoidCallback? onNext;
   final VoidCallback? onPrevious;
+  final List? epishodesQueue;
+  final String? showImageUrl;
+  final String? channel;
+  final String? epishodeUrl;
+  final String? parentShowTitle;
+  final String? showMainUrl;
+  final String? localVideoPath;
 
   const EnhancedVideoPlayerScreen({
     Key? key,
-    required this.videoUrl,
+    this.videoUrl,
     this.headers,
     this.cookies,
     this.authToken,
@@ -34,6 +51,13 @@ class EnhancedVideoPlayerScreen extends StatefulWidget {
     this.title,
     this.onNext,
     this.onPrevious,
+    this.epishodesQueue,
+    this.showImageUrl,
+    this.channel,
+    this.epishodeUrl,
+    this.parentShowTitle,
+    this.showMainUrl,
+    this.localVideoPath,
   }) : super(key: key);
 
   @override
@@ -43,12 +67,28 @@ class EnhancedVideoPlayerScreen extends StatefulWidget {
 
 class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
     with TickerProviderStateMixin {
-  late VideoPlayerController _videoPlayerController;
+  VideoPlayerController? _rawVideoPlayerController;
+  VideoPlayerController get _videoPlayerController =>
+      _rawVideoPlayerController!;
+  set _videoPlayerController(VideoPlayerController controller) {
+    _rawVideoPlayerController = controller;
+  }
+
+  bool get _isPlayerInitialized => _rawVideoPlayerController != null;
   bool _isLoading = true;
   bool _showControls = true;
   bool _isFullScreen = false;
   String? _errorMessage;
   bool _hasError = false;
+
+  int _currentPage = 0;
+  static const int _itemsPerPage = 10;
+  bool _showEpisodesOverlay = false;
+  static bool wasFullScreen = false;
+
+  bool _isLoadingEpisodes = false;
+  List _fetchedEpisodes = [];
+  List _fetchedPagination = [];
 
   // Animation controllers
   late AnimationController _controlsAnimationController;
@@ -66,12 +106,21 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
   Timer? _hideControlsTimer;
   Timer? _longPressTimer;
   bool _isDragging = false;
+  double? _dragValue;
+  Offset? _panLastPosition;
+  bool? _wasLandscape;
   bool _showVolumeSlider = false;
   bool _showBrightnessSlider = false;
   double _currentVolume = 0.5;
   double _currentBrightness = 0.5;
   bool _isDownloading = false;
   double _downloadProgress = 0.0;
+  bool _isCurrentEpisodeDownloaded = false;
+  String? _downloadedLocalPath;
+  int _lastSavedProgressMs = 0;
+  bool _showResumeOverlayWidget = false;
+  int _resumePositionMs = 0;
+  final FocusNode _startOverFocusNode = FocusNode();
 
   // TV Remote focus
   final FocusNode _mainFocusNode = FocusNode();
@@ -83,56 +132,127 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
   final FocusNode _downloadFocusNode = FocusNode();
   final FocusNode _pipFocusNode = FocusNode();
   final FocusNode _settingsFocusNode = FocusNode();
+  final FocusNode _serversFocusNode = FocusNode();
   final FocusNode _fullscreenFocusNode = FocusNode();
 
   int _selectedControlIndex = 5;
   final List<FocusNode> _controlFocusNodes = [];
 
   // Aspect Ratio selection
-  double? _customAspectRatio = 16 / 9; // Default to 16:9
+  double? _customAspectRatio = 16 / 9;
 
   final Floating _floating = Floating();
 
-  // Add state for double-tap feedback
-  int _lastDoubleTapDirection = 0; // -1 for left, 1 for right
+  int _lastDoubleTapDirection = 0;
   Timer? _doubleTapFeedbackTimer;
 
-  // Add pan start position for gesture direction
   Offset? _panStartPosition;
 
-  // Add a cancel token for Dio
   CancelToken? _downloadCancelToken;
 
-  // Bluetooth control state
   bool _isBluetoothConnected = false;
   String? _bluetoothDeviceName;
   Timer? _bluetoothCheckTimer;
 
-  // Android TV detection
   bool get isAndroidTV =>
       Platform.isAndroid && _isTablet && _screenWidth > 1000;
 
-  // Responsive design variables
   late double _screenWidth;
   late double _screenHeight;
   late bool _isLandscape;
   late bool _isTablet;
 
+  bool _isAutoNextEnabled = true;
+  String? _currentShowMainUrl;
+
+  // Background resolving & custom speed overlays
+  String? _currentEpisodeUrl;
+  String? _currentEpisodeTitle;
+  List? _currentEpisodesQueue;
+  String? _currentVideoUrl;
+  Map<String, String>? _currentHeaders;
+  String? _currentCookies;
+  String? _currentAuthToken;
+  String? _currentReferer;
+  String? _currentUserAgent;
+  List<String> _serversList = [];
+  int _currentServerIndex = 0;
+  String _statusText = "";
+  double? _playbackSpeed;
+  Timer? _speedTimer;
+  HeadlessInAppWebView? _headlessWebView;
+  Timer? _scanTimeoutTimer;
+  String? _localVideoPath;
+
   @override
   void initState() {
     super.initState();
+    _isFullScreen = wasFullScreen;
+    _currentShowMainUrl = widget.showMainUrl;
+    _customAspectRatio = _isFullScreen ? null : 16 / 9;
+    SystemChrome.setEnabledSystemUIMode(
+      _isFullScreen ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+    );
+    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarIconBrightness: Brightness.light,
+    ));
     _initializeAnimations();
+
+    _currentEpisodeUrl = widget.epishodeUrl;
+    _currentEpisodeTitle = widget.title;
+    _currentEpisodesQueue = widget.epishodesQueue;
+    _currentVideoUrl = widget.videoUrl;
+    _currentHeaders = widget.headers;
+    _currentCookies = widget.cookies;
+    _currentAuthToken = widget.authToken;
+    _currentReferer = widget.referer;
+    _currentUserAgent = widget.userAgent;
+    _localVideoPath = widget.localVideoPath;
+
     _initializePlayer();
     _initializeVolume();
     _initializeBrightness();
     _setupControlFocusNodes();
     _initializeBluetooth();
-    KeepScreenOn.turnOn(); // Keep screen awake
-    // Request focus for TV navigation
+    KeepScreenOn.turnOn();
+
+    if (widget.showMainUrl != null && widget.showMainUrl!.isNotEmpty) {
+      _loadShowEpisodes(widget.showMainUrl!);
+    }
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _mainFocusNode.requestFocus();
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      SystemChrome.setEnabledSystemUIMode(
+        _isFullScreen ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+      );
     });
+  }
+
+  Future<void> _loadShowEpisodes(String url) async {
+    if (!mounted) return;
+    setState(() {
+      _isLoadingEpisodes = true;
+      _currentShowMainUrl = url;
+    });
+    try {
+      final value = await Backend.fetchEpisodes(url);
+      if (mounted) {
+        setState(() {
+          _fetchedEpisodes = value[0];
+          _fetchedPagination = value[1];
+          _isLoadingEpisodes = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingEpisodes = false;
+        });
+      }
+    }
   }
 
   void _setupControlFocusNodes() {
@@ -258,15 +378,523 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
         'Bluetooth controller disconnected', Icons.bluetooth_disabled);
   }
 
-  Future<void> _initializePlayer() async {
+  Future<void> _checkIfDownloaded() async {
+    final path = await _getDownloadedLocalPath();
+    if (mounted) {
+      setState(() {
+        _isCurrentEpisodeDownloaded = path != null;
+        _downloadedLocalPath = path;
+      });
+    }
+  }
+
+  Future<String?> _getDownloadedLocalPath() async {
+    try {
+      final showTitle = widget.parentShowTitle ?? "Show";
+      final epTitle = _currentEpisodeTitle ?? "Episode";
+      final cleanShowTitle =
+          showTitle.replaceAll(RegExp(r'[^\w\s\-]'), '').trim();
+      final cleanEpTitle = epTitle.replaceAll(RegExp(r'[^\w\s\-]'), '').trim();
+      final displayTitle = '$cleanShowTitle - $cleanEpTitle';
+      final downloads = await Localstorage.getDownloads();
+      for (var item in downloads) {
+        try {
+          final data = jsonDecode(item);
+          if (data["episodeUrl"] == _currentEpisodeUrl ||
+              data["title"] == displayTitle) {
+            final path = data["localPath"] as String;
+            if (await File(path).exists()) {
+              return path;
+            }
+          }
+        } catch (_) {}
+      }
+    } catch (e) {
+      print('Error checking local downloads: $e');
+    }
+    return null;
+  }
+
+  Future<void> _playLocalFile(String filePath) async {
     try {
       setState(() {
         _isLoading = true;
         _hasError = false;
         _errorMessage = null;
+        _statusText = "Initializing local video player...";
+      });
+      _videoPlayerController = VideoPlayerController.file(File(filePath));
+      _videoPlayerController.addListener(_videoPlayerListener);
+      await _videoPlayerController.initialize();
+      if (_videoPlayerController.value.hasError) {
+        throw Exception(_videoPlayerController.value.errorDescription ??
+            'Unknown video error');
+      }
+      setState(() {
+        _isLoading = false;
+      });
+      final url = _currentEpisodeUrl ?? _currentVideoUrl ?? _localVideoPath;
+      int? savedProgress;
+      if (url != null && url.isNotEmpty) {
+        final progressVal = await Localstorage.getData("watch_progress_$url");
+        if (progressVal is int) {
+          savedProgress = progressVal;
+        }
+      }
+      if (savedProgress != null && savedProgress > 0) {
+        await _videoPlayerController
+            .seekTo(Duration(milliseconds: savedProgress));
+        _showResumeOverlay(savedProgress);
+      }
+      _videoPlayerController.play();
+      KeepScreenOn.turnOn();
+      _startHideControlsTimer();
+    } catch (e) {
+      setState(() {
+        _hasError = true;
+        _errorMessage = e.toString();
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _showResumeOverlay(int savedProgress) {
+    setState(() {
+      _showResumeOverlayWidget = true;
+      _resumePositionMs = savedProgress;
+    });
+    Timer(const Duration(seconds: 6), () {
+      if (mounted && _showResumeOverlayWidget) {
+        setState(() {
+          _showResumeOverlayWidget = false;
+        });
+      }
+    });
+    if (isAndroidTV) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted && _showResumeOverlayWidget) {
+          _startOverFocusNode.requestFocus();
+        }
+      });
+    }
+  }
+
+  void _handleStartOver() {
+    if (_isPlayerInitialized) {
+      _videoPlayerController.seekTo(Duration.zero);
+       final url = _currentEpisodeUrl ?? _currentVideoUrl ?? _localVideoPath;
+      if (url != null && url.isNotEmpty) {
+        Localstorage.clearData("watch_progress_$url");
+      }
+    }
+    setState(() {
+      _showResumeOverlayWidget = false;
+    });
+  }
+
+  Future<void> _saveWatchProgress() async {
+    if (!_isPlayerInitialized || !_videoPlayerController.value.isInitialized)
+      return;
+    final url = _currentEpisodeUrl ?? _currentVideoUrl ?? _localVideoPath;
+    if (url == null || url.isEmpty) return;
+    final position = _videoPlayerController.value.position.inMilliseconds;
+    final duration = _videoPlayerController.value.duration.inMilliseconds;
+    if (position > 5000 && position < duration - 10000) {
+      await Localstorage.setData("watch_progress_$url", position);
+    } else if (position >= duration - 10000) {
+      await Localstorage.clearData("watch_progress_$url");
+    }
+  }
+
+  Future<void> _initializePlayer() async {
+    _startLoadingEpisode();
+  }
+
+  Future<void> _startLoadingEpisode() async {
+    _stopScanningServer();
+    try {
+      if (_isPlayerInitialized) {
+        _videoPlayerController.removeListener(_videoPlayerListener);
+        try {
+          await _videoPlayerController.pause();
+        } catch (_) {}
+        await _videoPlayerController.dispose();
+      }
+    } catch (_) {}
+    _rawVideoPlayerController = null;
+
+    if (_currentEpisodeUrl != null && _currentEpisodeUrl!.isNotEmpty) {
+      final episodeItem = jsonEncode({
+        "type": "episode",
+        "url": _currentEpisodeUrl,
+        "title": _currentEpisodeTitle ?? "",
+        "imageUrl": widget.showImageUrl ?? "",
+        "channel": widget.channel ?? "",
+        "parentShowTitle": widget.parentShowTitle ?? "",
+        "timestamp": DateTime.now().millisecondsSinceEpoch,
+        "epishodesQueue": _currentEpisodesQueue,
+      });
+      Localstorage.addHistory(episodeItem);
+    }
+
+    setState(() {
+      _isLoading = true;
+      _hasError = false;
+      _errorMessage = null;
+      _statusText = "Checking stream...";
+    });
+
+    if (_localVideoPath != null && _localVideoPath!.isNotEmpty) {
+      _downloadedLocalPath = _localVideoPath;
+      _isCurrentEpisodeDownloaded = true;
+      await _playLocalFile(_downloadedLocalPath!);
+      return;
+    }
+
+    await _checkIfDownloaded();
+    if (_isCurrentEpisodeDownloaded && _downloadedLocalPath != null) {
+      await _playLocalFile(_downloadedLocalPath!);
+      return;
+    }
+
+    if (_currentVideoUrl != null &&
+        _currentVideoUrl!.isNotEmpty &&
+        (_currentVideoUrl!.endsWith('.m3u8') ||
+            _currentVideoUrl!.endsWith('.mp4') ||
+            (!_currentVideoUrl!.contains('/watch-online/') &&
+                !_currentVideoUrl!.contains('desi-serials.to')))) {
+      _playDirectStream(_currentVideoUrl!);
+      return;
+    }
+
+    if (_currentEpisodeUrl == null || _currentEpisodeUrl!.isEmpty) {
+      setState(() {
+        _hasError = true;
+        _errorMessage = "No video or episode URL provided.";
+        _isLoading = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _statusText = "Finding server list...";
+    });
+
+    try {
+      List<String> fetchedUrls = [];
+      final bool isDirectServerUrl =
+          !_currentEpisodeUrl!.contains('/watch-online/') &&
+              !_currentEpisodeUrl!.contains('desi-serials.to');
+
+      if (isDirectServerUrl) {
+        fetchedUrls = [_currentEpisodeUrl!];
+      } else {
+        var showsUrls =
+            await Localstorage.getData(Localstorage.ShowsCacheMemo) ?? "{}";
+        showsUrls = jsonDecode(showsUrls);
+
+        if (showsUrls.keys.contains(_currentEpisodeUrl)) {
+          fetchedUrls = List<String>.from(showsUrls[_currentEpisodeUrl]);
+        } else {
+          fetchedUrls = await Backend.extractEntryContentUrls(
+              _currentEpisodeUrl!, Backend.Get_a_Header());
+          if (fetchedUrls.isNotEmpty) {
+            showsUrls[_currentEpisodeUrl!] = fetchedUrls;
+            Localstorage.setData(
+                Localstorage.ShowsCacheMemo, jsonEncode(showsUrls));
+          }
+        }
+      }
+
+      if (fetchedUrls.isEmpty) {
+        setState(() {
+          _hasError = true;
+          _errorMessage = "Servers Not Found!";
+          _isLoading = false;
+        });
+        return;
+      }
+
+      setState(() {
+        _serversList = fetchedUrls;
+      });
+      _resolveServer(0);
+    } catch (e) {
+      setState(() {
+        _hasError = true;
+        _errorMessage = "Failed to load servers: $e";
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _resolveServer(int index) async {
+    _stopScanningServer();
+    if (index >= _serversList.length) {
+      setState(() {
+        _hasError = true;
+        _errorMessage = "No playable video found on any server.";
+        _isLoading = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _currentServerIndex = index;
+    });
+
+    final serverUrl = _serversList[index];
+    if (serverUrl.contains("vkprime")) {
+      setState(() {
+        _statusText = "Extracting premium video...";
+      });
+      try {
+        var IframSrc = await Backend.extractIframSRC_from_Webpage(
+            serverUrl, Backend.Get_a_Header());
+        if (IframSrc == null) {
+          _resolveServer(index + 1);
+          return;
+        }
+
+        final extractor = VKPrimeExtractor(
+          url: IframSrc,
+          onExtracted: (videoUrl) {
+            if (videoUrl != null) {
+              _playDirectStream(videoUrl);
+            } else {
+              _resolveServer(index + 1);
+            }
+          },
+        );
+        await extractor.start();
+      } catch (e) {
+        _resolveServer(index + 1);
+      }
+    } else {
+      setState(() {
+        _statusText = "Searching on Server ${index + 1}...";
+      });
+      _startScanningServer(serverUrl, index);
+    }
+  }
+
+  void _startScanningServer(String serverUrl, int serverIndex) async {
+    _scanTimeoutTimer = Timer(const Duration(seconds: 20), () {
+      _stopScanningServer();
+      _resolveServer(serverIndex + 1);
+    });
+
+    try {
+      _headlessWebView = HeadlessInAppWebView(
+        initialUrlRequest: URLRequest(url: WebUri(serverUrl)),
+        initialSettings: InAppWebViewSettings(
+          allowsInlineMediaPlayback: true,
+          mediaPlaybackRequiresUserGesture: false,
+          allowsAirPlayForMediaPlayback: true,
+          allowsPictureInPictureMediaPlayback: true,
+          iframeAllowFullscreen: true,
+          useShouldInterceptRequest: true,
+          javaScriptEnabled: true,
+          domStorageEnabled: true,
+        ),
+        onWebViewCreated: (controller) {
+          _setupScannerJS(controller);
+        },
+        shouldInterceptRequest: (controller, request) async {
+          final url = request.url.toString();
+          if (url.toLowerCase().contains('.m3u8')) {
+            final headers = request.headers ?? {};
+            _onM3u8Detected(M3U8UrlInfo(
+              url: url,
+              source: 'Network Request',
+              timestamp: DateTime.now(),
+              headers: Map<String, String>.from(headers),
+              referer: headers['Referer'],
+              userAgent: headers['User-Agent'],
+            ));
+          }
+          return null;
+        },
+        onConsoleMessage: (controller, consoleMessage) {
+          final msg = consoleMessage.message;
+          final m3u8Pattern = RegExp(
+              r'https?://[^\s<>"]+\.m3u8(?:\?[^\s<>"]*)?',
+              caseSensitive: false);
+          final match = m3u8Pattern.firstMatch(msg);
+          if (match != null) {
+            final url = match.group(0)!;
+            _onM3u8Detected(M3U8UrlInfo(
+              url: url,
+              source: 'Console Log',
+              timestamp: DateTime.now(),
+            ));
+          }
+        },
+        onLoadResource: (controller, resource) {
+          final url = resource.url.toString();
+          if (url.toLowerCase().contains('.m3u8')) {
+            _onM3u8Detected(M3U8UrlInfo(
+              url: url,
+              source: 'Resource Load',
+              timestamp: DateTime.now(),
+            ));
+          }
+        },
+      );
+
+      await _headlessWebView?.run();
+    } catch (e) {
+      _stopScanningServer();
+      _resolveServer(serverIndex + 1);
+    }
+  }
+
+  void _setupScannerJS(InAppWebViewController controller) {
+    const jsCode = '''
+      (function() {
+        const originalXHROpen = XMLHttpRequest.prototype.open;
+        const originalXHRSend = XMLHttpRequest.prototype.send;
+        const originalFetch = window.fetch;
+        
+        XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
+          this._url = url;
+          return originalXHROpen.apply(this, arguments);
+        };
+        
+        XMLHttpRequest.prototype.send = function(data) {
+          const xhr = this;
+          if (xhr._url && xhr._url.toLowerCase().includes('.m3u8')) {
+            console.log('found_m3u8_console: ' + xhr._url);
+          }
+          xhr.addEventListener('load', function() {
+            if (xhr._url && xhr.responseText) {
+              const response = xhr.responseText;
+              const m3u8Regex = /https?:\\/\\/[^\\s<>"]+\\.m3u8(?:\\?[^\\s<>"]*)?/gi;
+              const matches = response.match(m3u8Regex);
+              if (matches) {
+                matches.forEach(url => console.log('found_m3u8_console: ' + url));
+              }
+            }
+          });
+          return originalXHRSend.apply(this, arguments);
+        };
+        
+        window.fetch = function(...args) {
+          const url = args[0];
+          if (url && url.toString().toLowerCase().includes('.m3u8')) {
+            console.log('found_m3u8_console: ' + url.toString());
+          }
+          return originalFetch.apply(this, args).then(response => {
+            const clonedResponse = response.clone();
+            clonedResponse.text().then(text => {
+              const m3u8Regex = /https?:\\/\\/[^\\s<>"]+\\.m3u8(?:\\?[^\\s<>"]*)?/gi;
+              const matches = text.match(m3u8Regex);
+              if (matches) {
+                matches.forEach(url => console.log('found_m3u8_console: ' + url));
+              }
+            }).catch(() => {});
+            return response;
+          });
+        };
+        
+        function monitorVideoElements() {
+          document.querySelectorAll('video').forEach(video => {
+            if (video.src && video.src.toLowerCase().includes('.m3u8')) {
+              console.log('found_m3u8_console: ' + video.src);
+            }
+            video.querySelectorAll('source').forEach(source => {
+              if (source.src && source.src.toLowerCase().includes('.m3u8')) {
+                console.log('found_m3u8_console: ' + source.src);
+              }
+            });
+          });
+        }
+        
+        setInterval(monitorVideoElements, 2000);
+        monitorVideoElements();
+      })();
+    ''';
+    Timer(const Duration(milliseconds: 1500), () {
+      if (_headlessWebView?.webViewController != null) {
+        controller.evaluateJavascript(source: jsCode);
+      }
+    });
+  }
+
+  void _onM3u8Detected(M3U8UrlInfo urlInfo) {
+    _stopScanningServer();
+    _currentVideoUrl = urlInfo.url;
+    _currentHeaders = urlInfo.headers;
+    _currentCookies = urlInfo.cookies;
+    _currentAuthToken = urlInfo.authToken;
+    _currentReferer = urlInfo.referer;
+    _currentUserAgent = urlInfo.userAgent;
+    _playDirectStream(urlInfo.url);
+  }
+
+  void _stopScanningServer() {
+    _scanTimeoutTimer?.cancel();
+    _scanTimeoutTimer = null;
+    try {
+      _headlessWebView?.dispose();
+    } catch (_) {}
+    _headlessWebView = null;
+  }
+
+  void _changeSpeed(double speed) {
+    if (!_isPlayerInitialized || !_videoPlayerController.value.isInitialized)
+      return;
+    _videoPlayerController.setPlaybackSpeed(speed);
+    setState(() {
+      _playbackSpeed = speed;
+    });
+    _speedTimer?.cancel();
+    _speedTimer = Timer(const Duration(seconds: 1), () {
+      if (mounted) {
+        setState(() {
+          _playbackSpeed = null;
+        });
+      }
+    });
+  }
+
+  Widget _buildSpeedOverlay() {
+    if (_playbackSpeed == null) return const SizedBox.shrink();
+    return Positioned(
+      top: 40,
+      left: 0,
+      right: 0,
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.7),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white24, width: 1),
+          ),
+          child: Text(
+            '${_playbackSpeed!.toStringAsFixed(_playbackSpeed! == _playbackSpeed!.roundToDouble() ? 0 : 2)}x',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _playDirectStream(String videoUrl) async {
+    try {
+      setState(() {
+        _isLoading = true;
+        _hasError = false;
+        _errorMessage = null;
+        _statusText = "Initializing video player...";
       });
 
-      String finalUrl = _prepareUrlWithToken(widget.videoUrl, widget.authToken);
+      String finalUrl = _prepareUrlWithToken(videoUrl, _currentAuthToken);
       Map<String, String> finalHeaders = _prepareHeaders();
 
       _videoPlayerController = VideoPlayerController.networkUrl(
@@ -286,19 +914,23 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
         _isLoading = false;
       });
 
-      _videoPlayerController.play();
-      KeepScreenOn.turnOn(); // Enable keep-on when playing
-      _startHideControlsTimer();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-                'Use remote control for navigation. Long press OK for fullscreen.'),
-            duration: Duration(seconds: 3),
-          ),
-        );
+      final url = _currentEpisodeUrl ?? _currentVideoUrl ?? _localVideoPath;
+      int? savedProgress;
+      if (url != null && url.isNotEmpty) {
+        final progressVal = await Localstorage.getData("watch_progress_$url");
+        if (progressVal is int) {
+          savedProgress = progressVal;
+        }
       }
+      if (savedProgress != null && savedProgress > 0) {
+        await _videoPlayerController
+            .seekTo(Duration(milliseconds: savedProgress));
+        _showResumeOverlay(savedProgress);
+      }
+
+      _videoPlayerController.play();
+      KeepScreenOn.turnOn();
+      _startHideControlsTimer();
     } catch (e) {
       setState(() {
         _hasError = true;
@@ -322,37 +954,37 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
       'Accept': '*/*',
       'Accept-Encoding': 'gzip, deflate, br',
       'Connection': 'keep-alive',
-      'User-Agent': widget.userAgent ??
+      'User-Agent': _currentUserAgent ??
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
     };
 
-    if (widget.headers != null) {
-      finalHeaders.addAll(widget.headers!);
+    if (_currentHeaders != null) {
+      finalHeaders.addAll(_currentHeaders!);
     }
 
-    if (widget.referer != null && widget.referer!.isNotEmpty) {
-      finalHeaders['Referer'] = widget.referer!;
+    if (_currentReferer != null && _currentReferer!.isNotEmpty) {
+      finalHeaders['Referer'] = _currentReferer!;
       try {
-        final uri = Uri.parse(widget.referer!);
+        final uri = Uri.parse(_currentReferer!);
         finalHeaders['Origin'] = '${uri.scheme}://${uri.host}';
       } catch (e) {
         print('Failed to parse referer: $e');
       }
     }
 
-    if (widget.cookies != null && widget.cookies!.isNotEmpty) {
-      finalHeaders['Cookie'] = widget.cookies!;
+    if (_currentCookies != null && _currentCookies!.isNotEmpty) {
+      finalHeaders['Cookie'] = _currentCookies!;
     }
 
-    if (widget.authToken != null && widget.authToken!.isNotEmpty) {
+    if (_currentAuthToken != null && _currentAuthToken!.isNotEmpty) {
       if (!finalHeaders.containsKey('Authorization')) {
-        if (widget.authToken!.startsWith('eyJ')) {
-          finalHeaders['Authorization'] = 'Bearer ${widget.authToken!}';
-        } else if (widget.authToken!.toLowerCase().startsWith('bearer ') ||
-            widget.authToken!.toLowerCase().startsWith('basic ')) {
-          finalHeaders['Authorization'] = widget.authToken!;
+        if (_currentAuthToken!.startsWith('eyJ')) {
+          finalHeaders['Authorization'] = 'Bearer ${_currentAuthToken!}';
+        } else if (_currentAuthToken!.toLowerCase().startsWith('bearer ') ||
+            _currentAuthToken!.toLowerCase().startsWith('basic ')) {
+          finalHeaders['Authorization'] = _currentAuthToken!;
         } else {
-          finalHeaders['Authorization'] = 'Bearer ${widget.authToken!}';
+          finalHeaders['Authorization'] = 'Bearer ${_currentAuthToken!}';
         }
       }
     }
@@ -361,6 +993,7 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
   }
 
   void _videoPlayerListener() {
+    if (!_isPlayerInitialized) return;
     if (_videoPlayerController.value.hasError) {
       setState(() {
         _hasError = true;
@@ -368,9 +1001,69 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
             'Video playback error';
       });
     }
+
+    if (_videoPlayerController.value.isInitialized) {
+      final currentPosMs = _videoPlayerController.value.position.inMilliseconds;
+      if ((currentPosMs - _lastSavedProgressMs).abs() >= 5000) {
+        _lastSavedProgressMs = currentPosMs;
+        _saveWatchProgress();
+      }
+    }
+
+    if (_showControls && mounted) {
+      setState(() {});
+    }
+
+    if (_videoPlayerController.value.isInitialized &&
+        _videoPlayerController.value.duration > Duration.zero &&
+        _videoPlayerController.value.position >=
+            _videoPlayerController.value.duration -
+                const Duration(milliseconds: 500) &&
+        !_videoPlayerController.value.isPlaying) {
+      if (_isAutoNextEnabled) {
+        _videoPlayerController.removeListener(_videoPlayerListener);
+        _triggerNext();
+      }
+    }
+  }
+
+  void _triggerNext() {
+    if (widget.onNext != null) {
+      widget.onNext!();
+    } else {
+      _playNextEpisode();
+    }
+  }
+
+  Future<void> _playNextEpisode() async {
+    final queue = _currentEpisodesQueue ?? widget.epishodesQueue;
+    if (queue != null && queue.isNotEmpty) {
+      final nextEpisode = queue[0];
+      final remainingQueue = queue.sublist(1);
+
+      await _saveWatchProgress();
+
+      setState(() {
+        _localVideoPath = null;
+        _currentEpisodeUrl = nextEpisode["url"];
+        _currentEpisodeTitle = nextEpisode["title"];
+        _currentEpisodesQueue = remainingQueue;
+        _currentVideoUrl = null;
+        _currentHeaders = null;
+        _currentCookies = null;
+        _currentAuthToken = null;
+        _currentReferer = null;
+        _currentUserAgent = null;
+        _serversList = [];
+        _currentServerIndex = 0;
+      });
+
+      _startLoadingEpisode();
+    }
   }
 
   void _togglePlayPause() {
+    if (!_isPlayerInitialized) return;
     if (_videoPlayerController.value.isPlaying) {
       _videoPlayerController.pause();
       KeepScreenOn.turnOff(); // Release keep-on when paused
@@ -382,6 +1075,7 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
   }
 
   void _skipForward() {
+    if (!_isPlayerInitialized) return;
     final position = _videoPlayerController.value.position;
     final newPosition = position + const Duration(seconds: 10);
     _videoPlayerController.seekTo(newPosition);
@@ -389,6 +1083,7 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
   }
 
   void _skipBackward() {
+    if (!_isPlayerInitialized) return;
     final position = _videoPlayerController.value.position;
     final newPosition = position - const Duration(seconds: 10);
     _videoPlayerController.seekTo(newPosition);
@@ -424,7 +1119,9 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
 
   void _adjustVolume(double delta) {
     final newVolume = (_currentVolume + delta).clamp(0.0, 1.0);
-    _videoPlayerController.setVolume(newVolume);
+    if (_isPlayerInitialized) {
+      _videoPlayerController.setVolume(newVolume);
+    }
     setState(() {
       _currentVolume = newVolume;
       _showVolumeSlider = true;
@@ -465,138 +1162,406 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
     }
   }
 
-  Future<void> _downloadVideo() async {
-    if (_isDownloading) return;
-    if (!widget.videoUrl.endsWith('.m3u8')) {
-      // Download non-m3u8 video file
-      if (await Permission.storage.request().isDenied) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Storage permission required for download')),
-        );
-        return;
-      }
-      setState(() {
-        _isDownloading = true;
-        _downloadProgress = 0.0;
-      });
-      try {
-        Directory? directory;
-        if (Platform.isAndroid) {
-          directory = Directory('/storage/emulated/0/Download');
-          if (!await directory.exists()) {
-            directory = await getApplicationDocumentsDirectory();
+  Future<List<Map<String, String>>> _fetchHlsResolutions(String m3u8Url) async {
+    final List<Map<String, String>> resolutions = [];
+    try {
+      final dio = Dio();
+      final response = await dio.get(
+        m3u8Url,
+        options: Options(headers: _prepareHeaders()),
+      );
+      final content = response.data.toString();
+      if (content.contains('#EXT-X-STREAM-INF')) {
+        final lines = content.split('\n');
+        for (int i = 0; i < lines.length; i++) {
+          final line = lines[i].trim();
+          if (line.startsWith('#EXT-X-STREAM-INF')) {
+            final regExp = RegExp(r'RESOLUTION=(\d+x\d+)');
+            final match = regExp.firstMatch(line);
+            String resName = 'Unknown Resolution';
+            if (match != null) {
+              final res = match.group(1)!;
+              final height = res.split('x').last;
+              resName = '${height}p ($res)';
+            }
+            if (i + 1 < lines.length) {
+              final nextLine = lines[i + 1].trim();
+              if (nextLine.isNotEmpty && !nextLine.startsWith('#')) {
+                final resolvedUrl =
+                    Uri.parse(m3u8Url).resolve(nextLine).toString();
+                resolutions.add({
+                  'name': resName,
+                  'url': resolvedUrl,
+                });
+              }
+            }
           }
-        } else {
-          directory = await getApplicationDocumentsDirectory();
         }
-        final fileName = widget.videoUrl.split('/').last.split('?').first;
-        final file = File('${directory.path}/$fileName');
-        final dio = Dio();
-        await dio.download(
-          widget.videoUrl,
-          file.path,
-          onReceiveProgress: (received, total) {
-            setState(() {
-              _downloadProgress = total > 0 ? received / total : 0.0;
-            });
-          },
-          options: Options(headers: _prepareHeaders()),
-        );
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Video downloaded to: ${file.path}')),
-        );
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Download failed: $e')),
-        );
-      } finally {
-        setState(() {
-          _isDownloading = false;
-          _downloadProgress = 0.0;
-        });
       }
+    } catch (_) {}
+    if (resolutions.isEmpty) {
+      resolutions.add({
+        'name': 'Original Quality',
+        'url': m3u8Url,
+      });
+    }
+    return resolutions;
+  }
+
+  void _showDownloadOptionsDialog() async {
+    final videoUrl = _currentVideoUrl ?? widget.videoUrl;
+    if (videoUrl == null || videoUrl.isEmpty) {
+      _showModernSnackBar('No active stream to download', Icons.error);
       return;
     }
-    // Request storage permission
-    if (await Permission.storage.request().isDenied) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Storage permission required for download')),
-      );
-      return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+        ),
+      ),
+    );
+    final resolutions = await _fetchHlsResolutions(videoUrl);
+    if (mounted) {
+      Navigator.pop(context);
+    }
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          width: 320,
+          decoration: BoxDecoration(
+            color: Colors.grey[900],
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.3),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.download, color: Colors.blue),
+                  SizedBox(width: 8),
+                  Text(
+                    'Select Resolution',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: resolutions.length,
+                  itemBuilder: (context, index) {
+                    final res = resolutions[index];
+                    return ListTile(
+                      title: Text(
+                        res['name']!,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                      onTap: () {
+                        Navigator.pop(context);
+                        _downloadVideo(res['url']!, res['name']!);
+                      },
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel',
+                      style: TextStyle(color: Colors.blue)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _updateDownloadNotification(int id, String title, double progress,
+      {bool completed = false, bool failed = false}) {
+    try {
+      if (completed) {
+        AwesomeNotifications().createNotification(
+          content: NotificationContent(
+            id: id,
+            channelKey: 'progress_channel',
+            title: 'Download complete',
+            body: '$title downloaded successfully',
+            notificationLayout: NotificationLayout.Default,
+          ),
+        );
+      } else if (failed) {
+        AwesomeNotifications().createNotification(
+          content: NotificationContent(
+            id: id,
+            channelKey: 'progress_channel',
+            title: 'Download failed',
+            body: 'Download for $title failed or was cancelled',
+            notificationLayout: NotificationLayout.Default,
+          ),
+        );
+      } else {
+        AwesomeNotifications().createNotification(
+          content: NotificationContent(
+            id: id,
+            channelKey: 'progress_channel',
+            title: 'Downloading $title',
+            body: '${(progress * 100).toInt()}% downloaded',
+            notificationLayout: NotificationLayout.ProgressBar,
+            progress: (progress * 100),
+            locked: true,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error updating download notification: $e');
+    }
+  }
+
+  void _showDeleteDownloadedConfirmDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title:
+            const Text('Delete Video', style: TextStyle(color: Colors.white)),
+        content: const Text('Already downloaded. Want to delete it?',
+            style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Colors.blue)),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              if (_downloadedLocalPath != null) {
+                try {
+                  final file = File(_downloadedLocalPath!);
+                  if (await file.exists()) {
+                    await file.delete();
+                  }
+                  final parentDir = file.parent;
+                  if (parentDir.path.contains('/m3u8_') &&
+                      await parentDir.exists()) {
+                    await parentDir.delete(recursive: true);
+                  }
+                  await Localstorage.removeDownload(_downloadedLocalPath!);
+                  _showModernSnackBar(
+                      'Video deleted successfully', Icons.delete);
+                  setState(() {
+                    _isCurrentEpisodeDownloaded = false;
+                    _downloadedLocalPath = null;
+                  });
+                } catch (e) {
+                  _showModernSnackBar('Error deleting video: $e', Icons.error);
+                }
+              }
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _downloadVideo(String downloadUrl, String resolutionName) async {
+    if (_isDownloading) return;
+    if (Platform.isAndroid) {
+      await Permission.storage.request();
     }
     setState(() {
       _isDownloading = true;
       _downloadProgress = 0.0;
     });
     _downloadCancelToken = CancelToken();
-    try {
-      Directory? directory;
-      if (Platform.isAndroid) {
-        directory = Directory('/storage/emulated/0/Download');
-        if (!await directory.exists()) {
-          directory = await getApplicationDocumentsDirectory();
-        }
-      } else {
-        directory = await getApplicationDocumentsDirectory();
+    final showTitle = widget.parentShowTitle ?? "Show";
+    final epTitle = _currentEpisodeTitle ?? "Episode";
+    final cleanShowTitle =
+        showTitle.replaceAll(RegExp(r'[^\w\s\-]'), '').trim();
+    final cleanEpTitle = epTitle.replaceAll(RegExp(r'[^\w\s\-]'), '').trim();
+    final displayTitle = '$cleanShowTitle - $cleanEpTitle';
+    int notificationId = downloadUrl.hashCode.abs() % 100000;
+    AwesomeNotifications().isNotificationAllowed().then((isAllowed) {
+      if (!isAllowed) {
+        AwesomeNotifications().requestPermissionToSendNotifications();
       }
-      final folder = Directory(
-          '${directory.path}/m3u8_${DateTime.now().millisecondsSinceEpoch}');
-      await folder.create(recursive: true);
+    });
+
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final downloadsDir = Directory('${directory.path}/downloads');
+      if (!await downloadsDir.exists()) {
+        await downloadsDir.create(recursive: true);
+      }
       final dio = Dio();
-      // Download m3u8 playlist
-      final playlistResp = await dio.get(widget.videoUrl,
-          options: Options(headers: _prepareHeaders()),
-          cancelToken: _downloadCancelToken);
-      final playlistContent = playlistResp.data.toString();
-      final playlistFile = File('${folder.path}/playlist.m3u8');
-      await playlistFile.writeAsString(playlistContent);
-      // Parse and download segments
-      final segmentUrls = RegExp(r'^([^#][^\n]*)', multiLine: true)
-          .allMatches(playlistContent)
-          .map((m) => m.group(1)!.trim())
-          .where((line) =>
-              line.isNotEmpty &&
-              !line.startsWith('http') &&
-              !line.startsWith('#'))
-          .toList();
-      int downloaded = 0;
-      for (final segment in segmentUrls) {
-        if (_downloadCancelToken?.isCancelled == true) break;
-        final segmentUrl =
-            Uri.parse(widget.videoUrl).resolve(segment).toString();
-        final segmentResp = await dio.get<List<int>>(
-          segmentUrl,
-          options: Options(
-              responseType: ResponseType.bytes, headers: _prepareHeaders()),
+      final headers = _prepareHeaders();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+
+      if (downloadUrl.toLowerCase().contains('.m3u8')) {
+        final folder = Directory('${downloadsDir.path}/m3u8_$timestamp');
+        await folder.create(recursive: true);
+        final playlistResp = await dio.get(
+          downloadUrl,
+          options: Options(headers: headers),
           cancelToken: _downloadCancelToken,
         );
-        final segmentFile = File('${folder.path}/$segment');
-        await segmentFile.writeAsBytes(segmentResp.data!);
-        downloaded++;
-        setState(() {
-          _downloadProgress = downloaded / segmentUrls.length;
-        });
-      }
-      if (_downloadCancelToken?.isCancelled == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Download cancelled.')),
-        );
+        final playlistContent = playlistResp.data.toString();
+        final lines = playlistContent.split('\n');
+        final newLines = <String>[];
+        final segmentUrls = <String>[];
+        int segmentCount = 0;
+        for (var line in lines) {
+          final trimmed = line.trim();
+          if (trimmed.isNotEmpty && !trimmed.startsWith('#')) {
+            final resolvedSegmentUrl =
+                Uri.parse(downloadUrl).resolve(trimmed).toString();
+            final segmentFileName = 'segment_$segmentCount.ts';
+            newLines.add(segmentFileName);
+            segmentUrls.add(resolvedSegmentUrl);
+            segmentCount++;
+          } else {
+            newLines.add(line);
+          }
+        }
+        final playlistFile = File('${folder.path}/playlist.m3u8');
+        await playlistFile.writeAsString(newLines.join('\n'));
+        int downloaded = 0;
+        int lastNotifiedPercent = -1;
+        for (int i = 0; i < segmentUrls.length; i++) {
+          if (_downloadCancelToken?.isCancelled == true) break;
+          final segmentUrl = segmentUrls[i];
+          final segmentResp = await dio.get<List<int>>(
+            segmentUrl,
+            options:
+                Options(responseType: ResponseType.bytes, headers: headers),
+            cancelToken: _downloadCancelToken,
+          );
+          final segmentFile = File('${folder.path}/segment_$i.ts');
+          await segmentFile.writeAsBytes(segmentResp.data!);
+          downloaded++;
+          double prog = downloaded / segmentUrls.length;
+          int pct = (prog * 100).toInt();
+          setState(() {
+            _downloadProgress = prog;
+          });
+          if (pct != lastNotifiedPercent) {
+            lastNotifiedPercent = pct;
+            _updateDownloadNotification(notificationId, displayTitle, prog);
+          }
+        }
+        if (_downloadCancelToken?.isCancelled != true) {
+          final downloadItem = jsonEncode({
+            "title": displayTitle,
+            "url": downloadUrl,
+            "episodeUrl": _currentEpisodeUrl,
+            "localPath": playlistFile.path,
+            "imageUrl": widget.showImageUrl ?? "",
+            "channel": widget.channel ?? "",
+            "parentShowTitle": widget.parentShowTitle ?? "",
+            "timestamp": timestamp,
+            "resolution": resolutionName,
+          });
+          await Localstorage.addDownload(downloadItem);
+          _showModernSnackBar(
+              'Download complete: $displayTitle ($resolutionName)',
+              Icons.check_circle);
+          _updateDownloadNotification(notificationId, displayTitle, 1.0,
+              completed: true);
+          _checkIfDownloaded();
+        } else {
+          if (await folder.exists()) {
+            await folder.delete(recursive: true);
+          }
+          _showModernSnackBar('Download cancelled', Icons.cancel);
+          _updateDownloadNotification(notificationId, displayTitle, 0.0,
+              failed: true);
+        }
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('m3u8 video downloaded to: ${folder.path}')),
+        final fileExtension =
+            downloadUrl.split('?').first.split('.').last.toLowerCase();
+        final ext = (fileExtension == 'mp4' ||
+                fileExtension == 'mkv' ||
+                fileExtension == 'webm')
+            ? fileExtension
+            : 'mp4';
+        final file = File('${downloadsDir.path}/video_$timestamp.$ext');
+        int lastNotifiedPercent = -1;
+        await dio.download(
+          downloadUrl,
+          file.path,
+          onReceiveProgress: (received, total) {
+            double prog = total > 0 ? received / total : 0.0;
+            int pct = (prog * 100).toInt();
+            setState(() {
+              _downloadProgress = prog;
+            });
+            if (pct != lastNotifiedPercent) {
+              lastNotifiedPercent = pct;
+              _updateDownloadNotification(notificationId, displayTitle, prog);
+            }
+          },
+          options: Options(headers: headers),
+          cancelToken: _downloadCancelToken,
         );
+        if (_downloadCancelToken?.isCancelled != true) {
+          final downloadItem = jsonEncode({
+            "title": displayTitle,
+            "url": downloadUrl,
+            "episodeUrl": _currentEpisodeUrl,
+            "localPath": file.path,
+            "imageUrl": widget.showImageUrl ?? "",
+            "channel": widget.channel ?? "",
+            "parentShowTitle": widget.parentShowTitle ?? "",
+            "timestamp": timestamp,
+            "resolution": resolutionName,
+          });
+          await Localstorage.addDownload(downloadItem);
+          _showModernSnackBar(
+              'Download complete: $displayTitle ($resolutionName)',
+              Icons.check_circle);
+          _updateDownloadNotification(notificationId, displayTitle, 1.0,
+              completed: true);
+          _checkIfDownloaded();
+        } else {
+          if (await file.exists()) {
+            await file.delete();
+          }
+          _showModernSnackBar('Download cancelled', Icons.cancel);
+          _updateDownloadNotification(notificationId, displayTitle, 0.0,
+              failed: true);
+        }
       }
     } catch (e) {
       if (e is DioException && CancelToken.isCancel(e)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Download cancelled.')),
-        );
+        _showModernSnackBar('Download cancelled', Icons.cancel);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Download failed: $e')),
-        );
+        _showModernSnackBar('Download failed: $e', Icons.error);
+        _updateDownloadNotification(notificationId, displayTitle, 0.0,
+            failed: true);
       }
     } finally {
       setState(() {
@@ -679,8 +1644,10 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
           _togglePlayPause();
           break;
         case LogicalKeyboardKey.mediaStop:
-          _videoPlayerController.seekTo(Duration.zero);
-          _videoPlayerController.pause();
+          if (_isPlayerInitialized) {
+            _videoPlayerController.seekTo(Duration.zero);
+            _videoPlayerController.pause();
+          }
           break;
         case LogicalKeyboardKey.mediaSkipForward:
           _skipForward();
@@ -787,10 +1754,9 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
 
   void _navigateControls(int direction) {
     setState(() {
-      _selectedControlIndex =
-          (_selectedControlIndex + direction) % _controlFocusNodes.length;
+      _selectedControlIndex = (_selectedControlIndex + direction) % 10;
       if (_selectedControlIndex < 0) {
-        _selectedControlIndex = _controlFocusNodes.length - 1;
+        _selectedControlIndex = 9;
       }
     });
   }
@@ -809,24 +1775,91 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
       case 3: // setting
         _showSettingsDialog();
         break;
-      case 4: // 10s backward
+      case 4: // Servers
+        _showServerListDialog();
+        break;
+      case 5: // 10s backward
         _skipBackward();
         break;
-      case 5: // PLay/Pause btn
+      case 6: // Play/Pause btn
         _togglePlayPause();
         break;
-      case 6: // 10s Forward
+      case 7: // 10s Forward
         _skipForward();
         break;
-      case 7: // Fullscreen
+      case 8: // Fullscreen
         _toggleFullScreen();
         break;
+      case 9: // Download
+        if (_isCurrentEpisodeDownloaded) {
+          _showDeleteDownloadedConfirmDialog();
+        } else {
+          _showDownloadOptionsDialog();
+        }
+        break;
     }
+  }
+
+  // Handles player swipe gestures.
+  void _handlePanStart(DragStartDetails details) {
+    _isDragging = true;
+    _panStartPosition = details.localPosition;
+    _panLastPosition = details.localPosition;
+  }
+
+  void _handlePanUpdate(DragUpdateDetails details) {
+    _panLastPosition = details.localPosition;
+    if (_panStartPosition != null) {
+      if (_panStartPosition!.dx < _screenWidth * 0.3) {
+        final delta = -details.delta.dy / _screenHeight;
+        _adjustBrightness(delta);
+      } else if (_panStartPosition!.dx > _screenWidth * 0.7) {
+        final delta = -details.delta.dy / _screenHeight;
+        _adjustVolume(delta);
+      }
+    }
+  }
+
+  void _handlePanEnd(DragEndDetails details) {
+    _isDragging = false;
+    if (_panStartPosition != null && _panLastPosition != null) {
+      final double startX = _panStartPosition!.dx;
+      if (startX >= _screenWidth * 0.3 && startX <= _screenWidth * 0.7) {
+        final double totalDeltaY = _panLastPosition!.dy - _panStartPosition!.dy;
+        if (totalDeltaY < -60.0) {
+          if (!_isFullScreen) {
+            _toggleFullScreen();
+          }
+        } else if (totalDeltaY > 60.0) {
+          if (_isFullScreen) {
+            _toggleFullScreen();
+          } else if (_isLandscape) {
+            SystemChrome.setPreferredOrientations([
+              DeviceOrientation.portraitUp,
+              DeviceOrientation.portraitDown,
+              DeviceOrientation.landscapeLeft,
+              DeviceOrientation.landscapeRight,
+            ]);
+          } else {
+            Navigator.pop(context);
+          }
+        }
+      }
+    }
+    _panStartPosition = null;
+    _panLastPosition = null;
+    _startHideControlsTimer();
   }
 
   void _toggleFullScreen() {
     setState(() {
       _isFullScreen = !_isFullScreen;
+      wasFullScreen = _isFullScreen;
+      if (_isFullScreen) {
+        _customAspectRatio = null;
+      } else {
+        _customAspectRatio = 16 / 9;
+      }
     });
 
     if (_isFullScreen) {
@@ -836,13 +1869,25 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
         DeviceOrientation.landscapeRight,
       ]);
     } else {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarIconBrightness: Brightness.light,
+      ));
       SystemChrome.setPreferredOrientations([
         DeviceOrientation.portraitUp,
-        DeviceOrientation.portraitDown,
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
       ]);
+
+      Future.delayed(const Duration(seconds: 2), () {
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.portraitDown,
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+      });
     }
   }
 
@@ -858,6 +1903,13 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
 
   @override
   void dispose() {
+    _saveWatchProgress();
+    _startOverFocusNode.dispose();
+    _stopScanningServer();
+    _speedTimer?.cancel();
+    if (wasFullScreen) {
+      wasFullScreen = false;
+    }
     _controlsAnimationController.dispose();
     _volumeAnimationController.dispose();
     _brightnessAnimationController.dispose();
@@ -867,12 +1919,16 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
     _longPressTimer?.cancel();
     _doubleTapFeedbackTimer?.cancel();
     _bluetoothCheckTimer?.cancel();
-    _videoPlayerController.removeListener(_videoPlayerListener);
-    _videoPlayerController.dispose();
+    if (_isPlayerInitialized) {
+      _videoPlayerController.removeListener(_videoPlayerListener);
+      _videoPlayerController.dispose();
+      _rawVideoPlayerController = null;
+    }
 
     for (final focusNode in _controlFocusNodes) {
       focusNode.dispose();
     }
+    _serversFocusNode.dispose();
     _mainFocusNode.dispose();
 
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -882,6 +1938,17 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
+    final isDarkTheme =
+        WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+            Brightness.dark;
+    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: isDarkTheme ? Brightness.light : Brightness.dark,
+      statusBarBrightness: isDarkTheme ? Brightness.dark : Brightness.light,
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarIconBrightness:
+          isDarkTheme ? Brightness.light : Brightness.dark,
+    ));
 
     KeepScreenOn.turnOff(); // Release keep-on on dispose
     super.dispose();
@@ -889,89 +1956,717 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
 
   @override
   Widget build(BuildContext context) {
-    // Update responsive variables
     _screenWidth = MediaQuery.of(context).size.width;
     _screenHeight = MediaQuery.of(context).size.height;
     _isLandscape = _screenWidth > _screenHeight;
     _isTablet = _screenWidth > 600;
+
+    final currentLandscape = _screenWidth > _screenHeight;
+    if ((_wasLandscape == null && currentLandscape) ||
+        (_wasLandscape != null && currentLandscape && !_wasLandscape!)) {
+      if (!_isFullScreen) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && !_isFullScreen) {
+            _toggleFullScreen();
+          }
+        });
+      }
+    }
+    _wasLandscape = currentLandscape;
 
     return KeyboardListener(
       focusNode: _mainFocusNode,
       onKeyEvent: (event) {
         _handleTVRemoteKey(event);
       },
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        body: Container(
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.light,
+          statusBarBrightness: Brightness.dark,
+          systemNavigationBarColor: Colors.transparent,
+          systemNavigationBarIconBrightness: Brightness.light,
+        ),
+        child: Scaffold(
+          backgroundColor: Colors.black,
+          body: _isFullScreen
+              ? Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.black,
+                        Colors.grey[900]!,
+                        Colors.black,
+                      ],
+                    ),
+                  ),
+                  child: GestureDetector(
+                    onTap: () {
+                      if (_showControls) {
+                        _hideControls();
+                      } else {
+                        _showControlsTemporarily();
+                      }
+                    },
+                    onLongPressStart: (_) => _changeSpeed(2.0),
+                    onLongPressEnd: (_) => _changeSpeed(1.0),
+                    onPanStart: _handlePanStart,
+                    onPanUpdate: _handlePanUpdate,
+                    onPanEnd: _handlePanEnd,
+                    onDoubleTapDown: (details) {
+                      if (details.localPosition.dx < _screenWidth / 2) {
+                        _skipBackward();
+                        _showDoubleTapFeedback(-1);
+                      } else {
+                        _skipForward();
+                        _showDoubleTapFeedback(1);
+                      }
+                    },
+                    child: Stack(
+                      children: [
+                        Center(child: _buildVideoWidget()),
+                        _buildVolumeSlider(),
+                        _buildBrightnessSlider(),
+                        _buildCustomControls(),
+                        if (_isDownloading) _buildDownloadIndicator(),
+                        _buildDoubleTapFeedback(),
+                        _buildLoadingOverlay(),
+                        _buildSpeedOverlay(),
+                        if (_showEpisodesOverlay)
+                          _buildEpisodesFullScreenOverlay(),
+                        _buildResumeProgressOverlay(),
+                      ],
+                    ),
+                  ),
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      height: MediaQuery.of(context).padding.top,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black,
+                            Colors.black.withOpacity(0.85),
+                          ],
+                        ),
+                      ),
+                    ),
+                    AspectRatio(
+                      aspectRatio: 16 / 9,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Colors.black,
+                              Colors.grey[900]!,
+                              Colors.black,
+                            ],
+                          ),
+                        ),
+                        child: GestureDetector(
+                          onTap: () {
+                            if (_showControls) {
+                              _hideControls();
+                            } else {
+                              _showControlsTemporarily();
+                            }
+                          },
+                          onLongPressStart: (_) => _changeSpeed(2.0),
+                          onLongPressEnd: (_) => _changeSpeed(1.0),
+                          onPanStart: _handlePanStart,
+                          onPanUpdate: _handlePanUpdate,
+                          onPanEnd: _handlePanEnd,
+                          onDoubleTapDown: (details) {
+                            if (details.localPosition.dx < _screenWidth / 2) {
+                              _skipBackward();
+                              _showDoubleTapFeedback(-1);
+                            } else {
+                              _skipForward();
+                              _showDoubleTapFeedback(1);
+                            }
+                          },
+                          child: Stack(
+                            children: [
+                              Center(child: _buildVideoWidget()),
+                              _buildVolumeSlider(),
+                              _buildBrightnessSlider(),
+                              _buildCustomControls(),
+                              if (_isDownloading) _buildDownloadIndicator(),
+                              _buildDoubleTapFeedback(),
+                              _buildLoadingOverlay(),
+                              _buildSpeedOverlay(),
+                              _buildResumeProgressOverlay(),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Container(
+                        color: Colors.grey[950],
+                        child: SingleChildScrollView(
+                          child: SafeArea(
+                            top: false,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.all(16.0),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      if (widget.parentShowTitle != null)
+                                        Text(
+                                          widget.parentShowTitle!,
+                                          style: TextStyle(
+                                            color: Colors.blue[400],
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        _currentEpisodeTitle ??
+                                            widget.title ??
+                                            'Video Player',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 20,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      if (widget.channel != null) ...[
+                                        const SizedBox(height: 8),
+                                        Row(
+                                          children: [
+                                            ClipRRect(
+                                              borderRadius: BorderRadius.circular(12),
+                                              child: CachedNetworkImage(
+                                                imageUrl: Backend.getChannelLogo(widget.channel!),
+                                                width: 24,
+                                                height: 24,
+                                                fit: BoxFit.cover,
+                                                errorWidget: (_, __, ___) => const Icon(
+                                                  Icons.tv,
+                                                  color: Colors.white54,
+                                                  size: 16,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              widget.channel!,
+                                              style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                const Divider(color: Colors.white10, height: 1),
+                                const SizedBox(height: 16),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16),
+                                  child: Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text(
+                                        "More Episodes",
+                                        style: TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                      Row(
+                                        children: [
+                                          const Text(
+                                            "Auto Next",
+                                            style: TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 14),
+                                          ),
+                                          Switch(
+                                            value: _isAutoNextEnabled,
+                                            onChanged: (val) {
+                                              setState(() {
+                                                _isAutoNextEnabled = val;
+                                              });
+                                            },
+                                            activeColor: Colors.blue,
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                if ((widget.showMainUrl == null ||
+                                        widget.showMainUrl!.isEmpty) &&
+                                    (widget.epishodesQueue == null ||
+                                        widget.epishodesQueue!.isEmpty))
+                                  const Padding(
+                                    padding: EdgeInsets.all(16.0),
+                                    child: Center(
+                                      child: Text(
+                                        "No more episodes in queue.",
+                                        style: TextStyle(color: Colors.white54),
+                                      ),
+                                    ),
+                                  )
+                                else if (_isLoadingEpisodes)
+                                  const Padding(
+                                    padding: EdgeInsets.all(32.0),
+                                    child: Center(
+                                      child: CircularProgressIndicator(),
+                                    ),
+                                  )
+                                else
+                                  Builder(
+                                    builder: (context) {
+                                      final useFetched =
+                                          widget.showMainUrl != null &&
+                                              widget.showMainUrl!.isNotEmpty;
+                                      final episodesToShow = useFetched
+                                          ? _fetchedEpisodes
+                                          : (widget.epishodesQueue ?? []);
+
+                                      if (episodesToShow.isEmpty) {
+                                        return const Padding(
+                                          padding: EdgeInsets.all(16.0),
+                                          child: Center(
+                                            child: Text(
+                                              "No episodes found.",
+                                              style: TextStyle(
+                                                  color: Colors.white54),
+                                            ),
+                                          ),
+                                        );
+                                      }
+
+                                      final totalEpisodes =
+                                          episodesToShow.length;
+                                      final totalPages = useFetched
+                                          ? 1
+                                          : (totalEpisodes / _itemsPerPage)
+                                              .ceil();
+                                      final startIndex = useFetched
+                                          ? 0
+                                          : _currentPage * _itemsPerPage;
+                                      final endIndex = useFetched
+                                          ? totalEpisodes
+                                          : (startIndex + _itemsPerPage)
+                                              .clamp(0, totalEpisodes);
+                                      final displayedEpisodes = episodesToShow
+                                          .sublist(startIndex, endIndex);
+
+                                      return Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          ListView.builder(
+                                            shrinkWrap: true,
+                                            physics:
+                                                const NeverScrollableScrollPhysics(),
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 16),
+                                            itemCount: displayedEpisodes.length,
+                                            itemBuilder: (context, index) {
+                                              return _buildEpisodeCard(
+                                                  displayedEpisodes[index],
+                                                  startIndex + index);
+                                            },
+                                          ),
+                                          if (useFetched &&
+                                              _fetchedPagination.isNotEmpty)
+                                            Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      vertical: 16.0),
+                                              child: SingleChildScrollView(
+                                                scrollDirection:
+                                                    Axis.horizontal,
+                                                child: Row(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment.center,
+                                                  children: _fetchedPagination
+                                                      .map((page) {
+                                                    final isCurrent =
+                                                        page['current'] == true;
+                                                    final hasUrl =
+                                                        page['url'] != null;
+                                                    return InkWell(
+                                                      onTap: hasUrl
+                                                          ? () {
+                                                              _loadShowEpisodes(
+                                                                  page['url']);
+                                                            }
+                                                          : null,
+                                                      child: Container(
+                                                        margin: const EdgeInsets
+                                                            .symmetric(
+                                                            horizontal: 5,
+                                                            vertical: 10),
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .symmetric(
+                                                                vertical: 8,
+                                                                horizontal: 16),
+                                                        decoration:
+                                                            BoxDecoration(
+                                                          color: isCurrent
+                                                              ? Colors.blue
+                                                              : Colors
+                                                                  .grey[800],
+                                                          borderRadius:
+                                                              BorderRadius
+                                                                  .circular(20),
+                                                        ),
+                                                        child: Text(
+                                                          page['text'] ?? '',
+                                                          style: TextStyle(
+                                                            color: isCurrent
+                                                                ? Colors.white
+                                                                : Colors
+                                                                    .white70,
+                                                            fontWeight:
+                                                                FontWeight.bold,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    );
+                                                  }).toList(),
+                                                ),
+                                              ),
+                                            )
+                                          else if (!useFetched &&
+                                              totalPages > 1)
+                                            Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      vertical: 16.0),
+                                              child: SingleChildScrollView(
+                                                scrollDirection:
+                                                    Axis.horizontal,
+                                                child: Row(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment.center,
+                                                  children: List.generate(
+                                                      totalPages, (i) {
+                                                    final isCurrent =
+                                                        i == _currentPage;
+                                                    return InkWell(
+                                                      onTap: () {
+                                                        setState(() {
+                                                          _currentPage = i;
+                                                        });
+                                                      },
+                                                      child: Container(
+                                                        margin: const EdgeInsets
+                                                            .symmetric(
+                                                            horizontal: 5,
+                                                            vertical: 10),
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .symmetric(
+                                                                vertical: 8,
+                                                                horizontal: 16),
+                                                        decoration:
+                                                            BoxDecoration(
+                                                          color: isCurrent
+                                                              ? Colors.blue
+                                                              : Colors
+                                                                  .grey[800],
+                                                          borderRadius:
+                                                              BorderRadius
+                                                                  .circular(20),
+                                                        ),
+                                                        child: Text(
+                                                          '${i + 1}',
+                                                          style: TextStyle(
+                                                            color: isCurrent
+                                                                ? Colors.white
+                                                                : Colors
+                                                                    .white70,
+                                                            fontWeight:
+                                                                FontWeight.bold,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    );
+                                                  }),
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      );
+                                    },
+                                  ),
+                                // Buy Me a Coffee
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+                                  child: Center(
+                                    child: ConstrainedBox(
+                                      constraints: const BoxConstraints(maxWidth: 320),
+                                      child: Material(
+                                        color: Colors.transparent,
+                                        child: InkWell(
+                                          focusColor: Colors.blue.withValues(alpha: 0.3),
+                                          hoverColor: Colors.blue.withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(12),
+                                          onTap: () async {
+                                            final uri = Uri.parse('https://buymeacoffee.com/somnathdash/');
+                                            if (await canLaunchUrl(uri)) {
+                                              await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                            }
+                                          },
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(12),
+                                            child: Image.asset(
+                                              'asserts/buymeacoffee.png',
+                                              fit: BoxFit.contain,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEpisodesFullScreenOverlay() {
+    final useFetched =
+        widget.showMainUrl != null && widget.showMainUrl!.isNotEmpty;
+    final episodesToShow =
+        useFetched ? _fetchedEpisodes : widget.epishodesQueue ?? [];
+    return Positioned(
+      top: 0,
+      bottom: 0,
+      right: 0,
+      width: 320,
+      child: GestureDetector(
+        onTap: () {}, // Prevent tap bubble
+        child: Container(
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.black,
-                Colors.grey[900]!,
-                Colors.black,
-              ],
-            ),
+            color: Colors.black.withOpacity(0.9),
+            border:
+                const Border(left: BorderSide(color: Colors.white24, width: 1)),
           ),
-          child: GestureDetector(
-            onTap: () {
-              if (_showControls) {
-                _hideControls();
-              } else {
-                _showControlsTemporarily();
-              }
-            },
-            onLongPressStart: (_) {
-              _videoPlayerController.setPlaybackSpeed(2.0);
-              _showModernSnackBar('Playback speed: 2x', Icons.speed);
-            },
-            onLongPressEnd: (_) {
-              _videoPlayerController.setPlaybackSpeed(1.0);
-              _showModernSnackBar('Playback speed: 1x', Icons.speed);
-            },
-            onPanStart: (details) {
-              _isDragging = true;
-              _panStartPosition = details.localPosition;
-            },
-            onPanUpdate: (details) {
-              if (_panStartPosition != null) {
-                // Only vertical pan: left=brightness, right=volume
-                if (_panStartPosition!.dx < _screenWidth * 0.3) {
-                  final delta = -details.delta.dy / _screenHeight;
-                  _adjustBrightness(delta);
-                } else if (_panStartPosition!.dx > _screenWidth * 0.7) {
-                  final delta = -details.delta.dy / _screenHeight;
-                  _adjustVolume(delta);
-                }
-              }
-            },
-            onPanEnd: (details) {
-              _isDragging = false;
-              _panStartPosition = null;
-              _startHideControlsTimer();
-            },
-            onDoubleTapDown: (details) {
-              if (details.localPosition.dx < _screenWidth / 2) {
-                _skipBackward();
-                _showDoubleTapFeedback(-1);
-              } else {
-                _skipForward();
-                _showDoubleTapFeedback(1);
-              }
-            },
-            child: Stack(
-              children: [
-                Center(child: _buildVideoWidget()),
-                // Place sliders above video but below controls so controls remain responsive
-                _buildVolumeSlider(),
-                _buildBrightnessSlider(),
-                _buildCustomControls(),
-                if (_isDownloading) _buildDownloadIndicator(),
-                _buildDoubleTapFeedback(),
-                _buildLoadingOverlay(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AppBar(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                title: const Text(
+                  'More Episodes',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold),
+                ),
+                leading: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: () {
+                    setState(() {
+                      _showEpisodesOverlay = false;
+                    });
+                  },
+                ),
+              ),
+              if (_isLoadingEpisodes)
+                const Expanded(
+                  child: Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                )
+              else ...[
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: episodesToShow.length,
+                    itemBuilder: (context, index) {
+                      final episode = episodesToShow[index];
+                      return _buildEpisodeCard(episode, index);
+                    },
+                  ),
+                ),
+                if (useFetched && _fetchedPagination.isNotEmpty)
+                  Container(
+                    color: Colors.black.withOpacity(0.5),
+                    padding: const EdgeInsets.symmetric(vertical: 8.0),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: _fetchedPagination.map((page) {
+                          final isCurrent = page['current'] == true;
+                          final hasUrl = page['url'] != null;
+                          return InkWell(
+                            onTap: hasUrl
+                                ? () {
+                                    _loadShowEpisodes(page['url']);
+                                  }
+                                : null,
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(
+                                  horizontal: 5, vertical: 5),
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 6, horizontal: 12),
+                              decoration: BoxDecoration(
+                                color:
+                                    isCurrent ? Colors.blue : Colors.grey[800],
+                                borderRadius: BorderRadius.circular(15),
+                              ),
+                              child: Text(
+                                page['text'] ?? '',
+                                style: TextStyle(
+                                  color:
+                                      isCurrent ? Colors.white : Colors.white70,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
               ],
-            ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEpisodeCard(dynamic episode, int index) {
+    final useFetched =
+        widget.showMainUrl != null && widget.showMainUrl!.isNotEmpty;
+    final queue = useFetched
+        ? _fetchedEpisodes
+        : _currentEpisodesQueue ?? widget.epishodesQueue;
+    final bool isCurrentlyPlaying =
+        (_currentEpisodeUrl != null && episode["url"] == _currentEpisodeUrl) ||
+            (_currentEpisodeTitle != null &&
+                episode["title"] == _currentEpisodeTitle);
+
+    return InkWell(
+      onTap: () async {
+        final nextQueue = useFetched
+            ? (queue != null && index > 0
+                ? queue.sublist(0, index).reversed.toList()
+                : [])
+            : (queue != null && index + 1 < queue.length
+                ? queue.sublist(index + 1)
+                : []);
+
+        await _saveWatchProgress();
+
+        setState(() {
+          _currentEpisodeUrl = episode["url"];
+          _currentEpisodeTitle = episode["title"];
+          _currentEpisodesQueue = nextQueue;
+          _currentVideoUrl = null;
+          _currentHeaders = null;
+          _currentCookies = null;
+          _currentAuthToken = null;
+          _currentReferer = null;
+          _currentUserAgent = null;
+          _serversList = [];
+          _currentServerIndex = 0;
+        });
+
+        _startLoadingEpisode();
+      },
+      child: Card(
+        color: isCurrentlyPlaying
+            ? Colors.blue.withOpacity(0.2)
+            : Colors.grey[900],
+        margin: const EdgeInsets.symmetric(vertical: 6),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: isCurrentlyPlaying
+              ? const BorderSide(color: Colors.blue, width: 2)
+              : BorderSide.none,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              if (widget.showImageUrl != null &&
+                  widget.showImageUrl!.isNotEmpty)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: CachedNetworkImage(
+                    imageUrl: widget.showImageUrl!,
+                    width: 70,
+                    height: 45,
+                    fit: BoxFit.cover,
+                    placeholder: (context, url) =>
+                        Container(color: Colors.grey[800]),
+                    errorWidget: (context, url, error) =>
+                        const Icon(Icons.error),
+                  ),
+                )
+              else
+                Container(
+                  width: 70,
+                  height: 45,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[800],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.movie, color: Colors.white54),
+                ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  episode["title"] ?? "",
+                  style: TextStyle(
+                    color: isCurrentlyPlaying ? Colors.blue : Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Icon(
+                isCurrentlyPlaying ? Icons.volume_up : Icons.play_circle_fill,
+                color: Colors.blue,
+                size: 28,
+              ),
+            ],
           ),
         ),
       ),
@@ -1061,24 +2756,40 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
       );
     }
 
-    if (_videoPlayerController.value.isInitialized) {
+    if (_isPlayerInitialized && _videoPlayerController.value.isInitialized) {
       return Container(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(_isTablet ? 16 : 8),
+          borderRadius:
+              BorderRadius.circular(_isFullScreen ? 0 : (_isTablet ? 16 : 8)),
           boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.3),
-              blurRadius: 20,
-              offset: const Offset(0, 10),
-            ),
+            if (!_isFullScreen)
+              BoxShadow(
+                color: Colors.black.withOpacity(0.3),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
           ],
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(_isTablet ? 16 : 8),
+          borderRadius:
+              BorderRadius.circular(_isFullScreen ? 0 : (_isTablet ? 16 : 8)),
           child: AspectRatio(
-            aspectRatio:
-                _customAspectRatio ?? _videoPlayerController.value.aspectRatio,
-            child: VideoPlayer(_videoPlayerController),
+            aspectRatio: _customAspectRatio ??
+                (_isFullScreen
+                    ? (_isLandscape ? _screenWidth / _screenHeight : 16 / 9)
+                    : _videoPlayerController.value.aspectRatio),
+            child: FittedBox(
+              fit: BoxFit.fill,
+              child: SizedBox(
+                width: _videoPlayerController.value.size.width > 0
+                    ? _videoPlayerController.value.size.width
+                    : 16.0,
+                height: _videoPlayerController.value.size.height > 0
+                    ? _videoPlayerController.value.size.height
+                    : 9.0,
+                child: VideoPlayer(_videoPlayerController),
+              ),
+            ),
           ),
         ),
       );
@@ -1117,28 +2828,50 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
     // Responsive sizing for volume slider (landscape removed, values adjusted)
     final leftPosition =
         isLargeScreen ? (_isTablet ? 60.0 : 40.0) : (_isTablet ? 40.0 : 20.0);
-    final sliderWidth =
-        isLargeScreen ? (_isTablet ? 100.0 : 80.0) : (_isTablet ? 80.0 : 60.0);
-    final verticalPadding = isLargeScreen
-        ? (_isTablet ? 160.0 : 140.0)
-        : (_isTablet ? 120.0 : 100.0);
-    final iconSize =
-        isLargeScreen ? (_isTablet ? 36.0 : 32.0) : (_isTablet ? 28.0 : 24.0);
-    final iconPadding =
-        isLargeScreen ? (_isTablet ? 16.0 : 14.0) : (_isTablet ? 12.0 : 10.0);
-    final borderRadius =
-        isLargeScreen ? (_isTablet ? 20.0 : 18.0) : (_isTablet ? 16.0 : 12.0);
-    final trackHeight =
-        isLargeScreen ? (_isTablet ? 8.0 : 8.0) : (_isTablet ? 6.0 : 4.0);
-    final thumbRadius =
-        isLargeScreen ? (_isTablet ? 10.0 : 10.0) : (_isTablet ? 8.0 : 6.0);
-    final overlayRadius =
-        isLargeScreen ? (_isTablet ? 20.0 : 20.0) : (_isTablet ? 16.0 : 12.0);
-    final percentageFontSize =
-        isLargeScreen ? (_isTablet ? 14.0 : 14.0) : (_isTablet ? 12.0 : 10.0);
+    final double sliderWidth = !_isFullScreen
+        ? 40.0
+        : (isLargeScreen
+            ? (_isTablet ? 100.0 : 80.0)
+            : (_isTablet ? 80.0 : 60.0));
+    final double verticalPadding = !_isFullScreen
+        ? 10.0
+        : (isLargeScreen
+            ? (_isTablet ? 160.0 : 140.0)
+            : (_isTablet ? 120.0 : 100.0));
+    final double iconSize = !_isFullScreen
+        ? 16.0
+        : (isLargeScreen
+            ? (_isTablet ? 36.0 : 32.0)
+            : (_isTablet ? 28.0 : 24.0));
+    final double iconPadding = !_isFullScreen
+        ? 6.0
+        : (isLargeScreen
+            ? (_isTablet ? 16.0 : 14.0)
+            : (_isTablet ? 12.0 : 10.0));
+    final double borderRadius = !_isFullScreen
+        ? 8.0
+        : (isLargeScreen
+            ? (_isTablet ? 20.0 : 18.0)
+            : (_isTablet ? 16.0 : 12.0));
+    final double trackHeight = !_isFullScreen
+        ? 3.0
+        : (isLargeScreen ? (_isTablet ? 8.0 : 8.0) : (_isTablet ? 6.0 : 4.0));
+    final double thumbRadius = !_isFullScreen
+        ? 5.0
+        : (isLargeScreen ? (_isTablet ? 10.0 : 10.0) : (_isTablet ? 8.0 : 6.0));
+    final double overlayRadius = !_isFullScreen
+        ? 10.0
+        : (isLargeScreen
+            ? (_isTablet ? 20.0 : 20.0)
+            : (_isTablet ? 16.0 : 12.0));
+    final double percentageFontSize = !_isFullScreen
+        ? 9.0
+        : (isLargeScreen
+            ? (_isTablet ? 14.0 : 14.0)
+            : (_isTablet ? 12.0 : 10.0));
 
     return Positioned(
-      left: 20,
+      left: !_isFullScreen ? 10.0 : 20.0,
       top: 0,
       bottom: 0,
       child: FadeTransition(
@@ -1184,7 +2917,8 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
                   size: iconSize,
                 ),
               ),
-              SizedBox(height: isLargeScreen ? 20 : 16),
+              SizedBox(
+                  height: !_isFullScreen ? 8.0 : (isLargeScreen ? 20 : 16)),
 
               // Enhanced slider container
               Expanded(
@@ -1244,7 +2978,8 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
                   ),
                 ),
               ),
-              SizedBox(height: isLargeScreen ? 20 : 16),
+              SizedBox(
+                  height: !_isFullScreen ? 8.0 : (isLargeScreen ? 20 : 16)),
 
               // Enhanced percentage display
               Container(
@@ -1296,28 +3031,50 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
     final isLandscape = _screenWidth > _screenHeight;
 
     // Responsive sizing for brightness slider (mirroring _buildVolumeSlider)
-    final sliderWidth =
-        isLargeScreen ? (_isTablet ? 100.0 : 80.0) : (_isTablet ? 80.0 : 60.0);
-    final verticalPadding = isLargeScreen
-        ? (_isTablet ? 160.0 : 140.0)
-        : (_isTablet ? 120.0 : 100.0);
-    final iconSize =
-        isLargeScreen ? (_isTablet ? 36.0 : 32.0) : (_isTablet ? 28.0 : 24.0);
-    final iconPadding =
-        isLargeScreen ? (_isTablet ? 16.0 : 14.0) : (_isTablet ? 12.0 : 10.0);
-    final borderRadius =
-        isLargeScreen ? (_isTablet ? 20.0 : 18.0) : (_isTablet ? 16.0 : 12.0);
-    final trackHeight =
-        isLargeScreen ? (_isTablet ? 8.0 : 8.0) : (_isTablet ? 6.0 : 4.0);
-    final thumbRadius =
-        isLargeScreen ? (_isTablet ? 10.0 : 10.0) : (_isTablet ? 8.0 : 6.0);
-    final overlayRadius =
-        isLargeScreen ? (_isTablet ? 20.0 : 20.0) : (_isTablet ? 16.0 : 12.0);
-    final percentageFontSize =
-        isLargeScreen ? (_isTablet ? 14.0 : 14.0) : (_isTablet ? 12.0 : 10.0);
+    final double sliderWidth = !_isFullScreen
+        ? 40.0
+        : (isLargeScreen
+            ? (_isTablet ? 100.0 : 80.0)
+            : (_isTablet ? 80.0 : 60.0));
+    final double verticalPadding = !_isFullScreen
+        ? 10.0
+        : (isLargeScreen
+            ? (_isTablet ? 160.0 : 140.0)
+            : (_isTablet ? 120.0 : 100.0));
+    final double iconSize = !_isFullScreen
+        ? 16.0
+        : (isLargeScreen
+            ? (_isTablet ? 36.0 : 32.0)
+            : (_isTablet ? 28.0 : 24.0));
+    final double iconPadding = !_isFullScreen
+        ? 6.0
+        : (isLargeScreen
+            ? (_isTablet ? 16.0 : 14.0)
+            : (_isTablet ? 12.0 : 10.0));
+    final double borderRadius = !_isFullScreen
+        ? 8.0
+        : (isLargeScreen
+            ? (_isTablet ? 20.0 : 18.0)
+            : (_isTablet ? 16.0 : 12.0));
+    final double trackHeight = !_isFullScreen
+        ? 3.0
+        : (isLargeScreen ? (_isTablet ? 8.0 : 8.0) : (_isTablet ? 6.0 : 4.0));
+    final double thumbRadius = !_isFullScreen
+        ? 5.0
+        : (isLargeScreen ? (_isTablet ? 10.0 : 10.0) : (_isTablet ? 8.0 : 6.0));
+    final double overlayRadius = !_isFullScreen
+        ? 10.0
+        : (isLargeScreen
+            ? (_isTablet ? 20.0 : 20.0)
+            : (_isTablet ? 16.0 : 12.0));
+    final double percentageFontSize = !_isFullScreen
+        ? 9.0
+        : (isLargeScreen
+            ? (_isTablet ? 14.0 : 14.0)
+            : (_isTablet ? 12.0 : 10.0));
 
     return Positioned(
-      right: 20,
+      right: !_isFullScreen ? 10.0 : 20.0,
       top: 0,
       bottom: 0,
       child: FadeTransition(
@@ -1363,13 +3120,13 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
                   size: iconSize,
                 ),
               ),
-              SizedBox(height: isLargeScreen ? 20 : 16),
+              SizedBox(
+                  height: !_isFullScreen ? 8.0 : (isLargeScreen ? 20 : 16)),
 
               // Enhanced slider container
               Expanded(
                 child: Container(
-                  padding:
-                      EdgeInsets.symmetric(vertical: 2),
+                  padding: EdgeInsets.symmetric(vertical: 2),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
@@ -1427,7 +3184,8 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
                   ),
                 ),
               ),
-              SizedBox(height: isLargeScreen ? 20 : 16),
+              SizedBox(
+                  height: !_isFullScreen ? 8.0 : (isLargeScreen ? 20 : 16)),
 
               // Enhanced percentage display
               Container(
@@ -1472,7 +3230,9 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
   }
 
   Widget _buildCustomControls() {
-    if (!_showControls || !_videoPlayerController.value.isInitialized) {
+    if (!_showControls ||
+        !_isPlayerInitialized ||
+        !_videoPlayerController.value.isInitialized) {
       return const SizedBox.shrink();
     }
 
@@ -1486,10 +3246,10 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Colors.black.withOpacity(0.7),
-                Colors.transparent,
-                Colors.transparent,
-                Colors.black.withOpacity(0.7),
+                Colors.black.withOpacity(0.9),
+                Colors.black.withOpacity(0.15),
+                Colors.black.withOpacity(0.15),
+                Colors.black.withOpacity(0.9),
               ],
             ),
           ),
@@ -1497,8 +3257,10 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
             children: [
               _buildTopControls(),
               const Spacer(),
-              _buildCenterControls(),
-              const Spacer(),
+              if (_isFullScreen) ...[
+                _buildCenterControls(),
+                const Spacer(),
+              ],
               _buildBottomControls(),
             ],
           ),
@@ -1508,18 +3270,21 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
   }
 
   Widget _buildTopControls() {
+    final double topPadding = 0.0;
     return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: _isTablet ? 24 : 16,
-        vertical: _isTablet ? 16 : 12,
+      padding: EdgeInsets.only(
+        left: !_isFullScreen ? 12.0 : (_isTablet ? 24.0 : 16.0),
+        right: !_isFullScreen ? 12.0 : (_isTablet ? 24.0 : 16.0),
+        top: topPadding + (!_isFullScreen ? 6.0 : (_isTablet ? 16.0 : 12.0)),
+        bottom: !_isFullScreen ? 6.0 : (_isTablet ? 16.0 : 12.0),
       ),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
+            Colors.black.withOpacity(0.95),
             Colors.black.withOpacity(0.8),
-            Colors.black.withOpacity(0.6),
             Colors.transparent,
           ],
         ),
@@ -1540,38 +3305,76 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
               onPressed: () => Navigator.pop(context),
               highlight: _selectedControlIndex == 0,
               tooltip: 'Back',
-              size: _isTablet ? 32 : 28,
+              size: !_isFullScreen ? 24.0 : (_isTablet ? 32.0 : 28.0),
             ),
           Expanded(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    widget.title ?? 'Video Player',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: _isTablet ? 24 : 20,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (_videoPlayerController.value.isInitialized) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      '${_formatDuration(_videoPlayerController.value.position)} / ${_formatDuration(_videoPlayerController.value.duration)}',
-                      style: TextStyle(
-                        color: Colors.grey[300],
-                        fontSize: _isTablet ? 16 : 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ],
+              padding: EdgeInsets.symmetric(
+                horizontal: !_isFullScreen ? 8.0 : 16.0,
+                vertical: !_isFullScreen ? 4.0 : 8.0,
               ),
+              child: _isFullScreen
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (widget.channel != null) ...[
+                          Row(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: CachedNetworkImage(
+                                  imageUrl: Backend.getChannelLogo(widget.channel!),
+                                  width: 20,
+                                  height: 20,
+                                  fit: BoxFit.cover,
+                                  errorWidget: (_, __, ___) => const Icon(
+                                    Icons.tv,
+                                    color: Colors.white54,
+                                    size: 14,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                widget.channel!,
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                        ],
+                        Text(
+                          _currentEpisodeTitle ??
+                              widget.title ??
+                              'Video Player',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: _isTablet ? 24.0 : 20.0,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                          ),
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (_videoPlayerController.value.isInitialized) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            '${_formatDuration(_videoPlayerController.value.position)} / ${_formatDuration(_videoPlayerController.value.duration)}',
+                            style: TextStyle(
+                              color: Colors.grey[300],
+                              fontSize: _isTablet ? 16.0 : 14.0,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    )
+                  : const SizedBox.shrink(),
             ),
           ),
           Row(
@@ -1581,23 +3384,49 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
                 onPressed: _showGuideDialog,
                 highlight: _selectedControlIndex == 1,
                 tooltip: 'Guide',
-                size: _isTablet ? 32 : 28,
+                size: !_isFullScreen ? 24.0 : (_isTablet ? 32.0 : 28.0),
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: !_isFullScreen ? 4.0 : 8.0),
               _buildModernIconButton(
                 icon: Icons.picture_in_picture_alt,
                 onPressed: _enterPipMode,
                 tooltip: 'PiP',
                 highlight: _selectedControlIndex == 2,
-                size: _isTablet ? 32 : 28,
+                size: !_isFullScreen ? 24.0 : (_isTablet ? 32.0 : 28.0),
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: !_isFullScreen ? 4.0 : 8.0),
               _buildModernIconButton(
                 icon: Icons.settings,
                 onPressed: _showSettingsDialog,
                 highlight: _selectedControlIndex == 3,
                 tooltip: 'Settings',
-                size: _isTablet ? 32 : 28,
+                size: !_isFullScreen ? 24.0 : (_isTablet ? 32.0 : 28.0),
+              ),
+              SizedBox(width: !_isFullScreen ? 4.0 : 8.0),
+              _buildModernIconButton(
+                icon: Icons.dns,
+                onPressed: _showServerListDialog,
+                highlight: _selectedControlIndex == 4,
+                tooltip: 'Servers',
+                size: !_isFullScreen ? 24.0 : (_isTablet ? 32.0 : 28.0),
+              ),
+              SizedBox(width: !_isFullScreen ? 4.0 : 8.0),
+              _buildModernIconButton(
+                icon: _isCurrentEpisodeDownloaded
+                    ? Icons.delete_outline
+                    : Icons.download,
+                onPressed: () {
+                  if (_isCurrentEpisodeDownloaded) {
+                    _showDeleteDownloadedConfirmDialog();
+                  } else {
+                    _showDownloadOptionsDialog();
+                  }
+                },
+                highlight: _selectedControlIndex == 9,
+                tooltip: _isCurrentEpisodeDownloaded
+                    ? 'Delete Download'
+                    : 'Download',
+                size: !_isFullScreen ? 24.0 : (_isTablet ? 32.0 : 28.0),
               ),
             ],
           ),
@@ -1713,8 +3542,11 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
   }
 
   Widget _buildBottomControls() {
-    final position = _videoPlayerController.value.position;
     final duration = _videoPlayerController.value.duration;
+    final position = (_isDragging && _dragValue != null)
+        ? Duration(
+            milliseconds: (_dragValue! * duration.inMilliseconds).round())
+        : _videoPlayerController.value.position;
     final progress = duration.inMilliseconds > 0
         ? position.inMilliseconds / duration.inMilliseconds
         : 0.0;
@@ -1739,54 +3571,78 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
     }
 
     // Padding and radius
-    final padding = isLandscape
-        ? responsiveW(0.05, min: 8, max: 56)
-        : responsiveW(0.035, min: 8, max: 40);
-    final verticalPadding = isLandscape
-        ? responsiveH(0.04, min: 8, max: 40)
-        : responsiveH(0.025, min: 8, max: 32);
-    final borderRadius = isLandscape
-        ? responsiveW(0.06, min: 8, max: 48)
-        : responsiveW(0.045, min: 8, max: 36);
+    final double padding = !_isFullScreen
+        ? 8.0
+        : (isLandscape
+            ? responsiveW(0.05, min: 8, max: 56)
+            : responsiveW(0.035, min: 8, max: 40));
+    final double verticalPadding = !_isFullScreen
+        ? 6.0
+        : (isLandscape
+            ? responsiveH(0.04, min: 8, max: 40)
+            : responsiveH(0.025, min: 8, max: 32));
+    final double borderRadius = !_isFullScreen
+        ? 8.0
+        : (isLandscape
+            ? responsiveW(0.06, min: 8, max: 48)
+            : responsiveW(0.045, min: 8, max: 36));
 
     // Font sizes
-    final timeFontSize = isLandscape
-        ? responsiveH(0.03, min: 10, max: 28)
-        : responsiveH(0.022, min: 10, max: 22);
-    final volumeFontSize = isLandscape
-        ? responsiveH(0.027, min: 10, max: 24)
-        : responsiveH(0.018, min: 10, max: 18);
+    final double timeFontSize = !_isFullScreen
+        ? 13.0
+        : (isLandscape
+            ? responsiveH(0.03, min: 10, max: 28)
+            : responsiveH(0.022, min: 10, max: 22));
+    final double volumeFontSize = !_isFullScreen
+        ? 13.0
+        : (isLandscape
+            ? responsiveH(0.027, min: 10, max: 24)
+            : responsiveH(0.018, min: 10, max: 18));
 
     // Icon sizes
-    final iconSize = isLandscape
-        ? responsiveW(0.07, min: 20, max: 56)
-        : responsiveW(0.05, min: 18, max: 40);
-    final smallIconSize = isLandscape
-        ? responsiveW(0.06, min: 16, max: 44)
-        : responsiveW(0.04, min: 14, max: 32);
+    final double iconSize = !_isFullScreen
+        ? 24.0
+        : (isLandscape
+            ? responsiveW(0.07, min: 20, max: 56)
+            : responsiveW(0.05, min: 18, max: 40));
+    final double smallIconSize = !_isFullScreen
+        ? 20.0
+        : (isLandscape
+            ? responsiveW(0.06, min: 16, max: 44)
+            : responsiveW(0.04, min: 14, max: 32));
 
     // Slider sizes
-    final trackHeight = isLandscape
-        ? responsiveH(0.012, min: 4, max: 14)
-        : responsiveH(0.008, min: 3, max: 10);
-    final thumbRadius = isLandscape
-        ? responsiveH(0.018, min: 6, max: 18)
-        : responsiveH(0.012, min: 5, max: 14);
-    final overlayRadius = isLandscape
-        ? responsiveH(0.035, min: 10, max: 32)
-        : responsiveH(0.022, min: 8, max: 24);
+    final double trackHeight = !_isFullScreen
+        ? 3.0
+        : (isLandscape
+            ? responsiveH(0.012, min: 4, max: 14)
+            : responsiveH(0.008, min: 3, max: 10));
+    final double thumbRadius = !_isFullScreen
+        ? 5.0
+        : (isLandscape
+            ? responsiveH(0.018, min: 6, max: 18)
+            : responsiveH(0.012, min: 5, max: 14));
+    final double overlayRadius = !_isFullScreen
+        ? 10.0
+        : (isLandscape
+            ? responsiveH(0.035, min: 10, max: 32)
+            : responsiveH(0.022, min: 8, max: 24));
 
     // Fix: Remove all uses of undefined variable isLargeScreen and replace with a computed value.
     // We'll define isLargeScreen based on screenWidth, e.g. > 900 is large.
     final bool isLargeScreen = screenWidth > 900;
 
-    final largeButtonSize = isLandscape
-        ? (_isTablet ? 120.0 : 100.0)
-        : (isLargeScreen ? 100.0 : (_isTablet ? 88.0 : 72.0));
+    final double largeButtonSize = !_isFullScreen
+        ? 48.0
+        : (isLandscape
+            ? (_isTablet ? 120.0 : 100.0)
+            : (isLargeScreen ? 100.0 : (_isTablet ? 88.0 : 72.0)));
 
-        final smallButtonSize = isLandscape
-        ? (_isTablet ? 88.0 : 72.0)
-        : (isLargeScreen ? 72.0 : (_isTablet ? 64.0 : 56.0));
+    final double smallButtonSize = !_isFullScreen
+        ? 36.0
+        : (isLandscape
+            ? (_isTablet ? 88.0 : 72.0)
+            : (isLargeScreen ? 72.0 : (_isTablet ? 64.0 : 56.0)));
 
     return Container(
       padding: EdgeInsets.symmetric(
@@ -1799,9 +3655,9 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
           end: Alignment.bottomCenter,
           colors: [
             Colors.transparent,
-            Colors.black.withOpacity(0.4),
-            Colors.black.withOpacity(0.7),
-            Colors.black.withOpacity(0.9),
+            Colors.black.withOpacity(0.6),
+            Colors.black.withOpacity(0.85),
+            Colors.black,
           ],
           stops: const [0.0, 0.3, 0.7, 1.0],
         ),
@@ -1822,8 +3678,8 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
             children: [
               Container(
                 padding: EdgeInsets.symmetric(
-                    horizontal: isLargeScreen ? 12 : 8,
-                    vertical: isLargeScreen ? 6 : 4),
+                    horizontal: !_isFullScreen ? 6.0 : (isLargeScreen ? 12 : 8),
+                    vertical: !_isFullScreen ? 3.0 : (isLargeScreen ? 6 : 4)),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [Colors.blue[600]!, Colors.blue[400]!],
@@ -1849,8 +3705,9 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
               ),
               Expanded(
                 child: Padding(
-                  padding:
-                      EdgeInsets.symmetric(horizontal: isLargeScreen ? 20 : 16),
+                  padding: EdgeInsets.symmetric(
+                      horizontal:
+                          !_isFullScreen ? 8.0 : (isLargeScreen ? 20 : 16)),
                   child: SliderTheme(
                     data: SliderTheme.of(context).copyWith(
                       activeTrackColor: Colors.blue[400],
@@ -1908,6 +3765,9 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
                       child: Slider(
                         value: progress.clamp(0.0, 1.0),
                         onChanged: (value) {
+                          setState(() {
+                            _dragValue = value;
+                          });
                           final videoDuration =
                               _videoPlayerController.value.duration;
                           final newPosition = Duration(
@@ -1917,11 +3777,17 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
                           _videoPlayerController.seekTo(newPosition);
                         },
                         onChangeStart: (value) {
-                          _isDragging = true;
+                          setState(() {
+                            _isDragging = true;
+                            _dragValue = value;
+                          });
                           _hideControlsTimer?.cancel();
                         },
                         onChangeEnd: (value) {
-                          _isDragging = false;
+                          setState(() {
+                            _isDragging = false;
+                            _dragValue = null;
+                          });
                           _startHideControlsTimer();
                         },
                       ),
@@ -1931,8 +3797,8 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
               ),
               Container(
                 padding: EdgeInsets.symmetric(
-                    horizontal: isLargeScreen ? 12 : 8,
-                    vertical: isLargeScreen ? 6 : 4),
+                    horizontal: !_isFullScreen ? 6.0 : (isLargeScreen ? 12 : 8),
+                    vertical: !_isFullScreen ? 3.0 : (isLargeScreen ? 6 : 4)),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [Colors.grey[700]!, Colors.grey[600]!],
@@ -1958,70 +3824,48 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
               ),
             ],
           ),
-          SizedBox(height: isLargeScreen ? 20 : 16),
+          SizedBox(height: !_isFullScreen ? 8.0 : (isLargeScreen ? 20 : 16)),
 
           // // Bottom row with enhanced controls
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-          //     // Volume control with enhanced styling
-          //     Container(
-          //       padding: EdgeInsets.symmetric(
-          //           horizontal: isLargeScreen ? 16 : 12,
-          //           vertical: isLargeScreen ? 8 : 6),
-          //       decoration: BoxDecoration(
-          //         gradient: LinearGradient(
-          //           colors: [
-          //             Colors.black.withOpacity(0.7),
-          //             Colors.black.withOpacity(0.5),
-          //           ],
-          //         ),
-          //         borderRadius: BorderRadius.circular(isLargeScreen ? 16 : 12),
-          //         border: Border.all(
-          //           color: Colors.white.withOpacity(0.2),
-          //           width: 1,
-          //         ),
-          //         boxShadow: [
-          //           BoxShadow(
-          //             color: Colors.black.withOpacity(0.3),
-          //             blurRadius: 8,
-          //             offset: const Offset(0, 2),
-          //           ),
-          //         ],
-          //       ),
-          //       child: Row(
-          //         mainAxisSize: MainAxisSize.min,
-          //         children: [
-          //           _buildModernIconButton(
-          //             icon: _videoPlayerController.value.volume > 0
-          //                 ? Icons.volume_up
-          //                 : Icons.volume_off,
-          //             onPressed: () {
-          //               final newVolume =
-          //                   _videoPlayerController.value.volume > 0
-          //                       ? 0.0
-          //                       : _currentVolume;
-          //               _videoPlayerController.setVolume(newVolume);
-          //               setState(() {
-          //                 _currentVolume = newVolume;
-          //               });
-          //             },
-          //             tooltip: 'Mute',
-          //             size: smallIconSize,
-          //           ),
-          //           SizedBox(width: isLargeScreen ? 8 : 6),
-          //           Text(
-          //             '${(_videoPlayerController.value.volume * 100).round()}%',
-          //             style: TextStyle(
-          //               color: Colors.white,
-          //               fontSize: volumeFontSize,
-          //               fontWeight: FontWeight.w600,
-          //               letterSpacing: 0.3,
-          //             ),
-          //           ),
-          //         ],
-          //       ),
-          //     ),
+              //           ),
+              //         ],
+              //       ),
+              //       child: Row(
+              //         mainAxisSize: MainAxisSize.min,
+              //         children: [
+              //           _buildModernIconButton(
+              //             icon: _videoPlayerController.value.volume > 0
+              //                 ? Icons.volume_up
+              //                 : Icons.volume_off,
+              //             onPressed: () {
+              //               final newVolume =
+              //                   _videoPlayerController.value.volume > 0
+              //                       ? 0.0
+              //                       : _currentVolume;
+              //               _videoPlayerController.setVolume(newVolume);
+              //               setState(() {
+              //                 _currentVolume = newVolume;
+              //               });
+              //             },
+              //             tooltip: 'Mute',
+              //             size: smallIconSize,
+              //           ),
+              //           SizedBox(width: isLargeScreen ? 8 : 6),
+              //           Text(
+              //             '${(_videoPlayerController.value.volume * 100).round()}%',
+              //             style: TextStyle(
+              //               color: Colors.white,
+              //               fontSize: volumeFontSize,
+              //               fontWeight: FontWeight.w600,
+              //               letterSpacing: 0.3,
+              //             ),
+              //           ),
+              //         ],
+              //       ),
+              //     ),
 
               // Right side controls
               Row(
@@ -2070,12 +3914,51 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
                   ),
                 ],
               ),
-              _buildModernIconButton(
-                icon: _isFullScreen ? Icons.fullscreen_exit : Icons.fullscreen,
-                onPressed: _toggleFullScreen,
-                highlight: _selectedControlIndex == 7,
-                tooltip: 'Fullscreen',
-                size: iconSize,
+              Row(
+                children: [
+                  if (_isFullScreen &&
+                      widget.epishodesQueue != null &&
+                      widget.epishodesQueue!.isNotEmpty) ...[
+                    _buildModernIconButton(
+                      icon: Icons.video_library,
+                      onPressed: () {
+                        setState(() {
+                          _showEpisodesOverlay = !_showEpisodesOverlay;
+                        });
+                      },
+                      tooltip: 'More Episodes',
+                      size: iconSize,
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton.icon(
+                      onPressed: _playNextEpisode,
+                      icon: const Icon(Icons.skip_next, color: Colors.white),
+                      label: const Text(
+                        "Next Episode",
+                        style: TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                      style: TextButton.styleFrom(
+                        backgroundColor: Colors.blue.withOpacity(0.3),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                  ],
+                  _buildModernIconButton(
+                    icon: _isFullScreen
+                        ? Icons.fullscreen_exit
+                        : Icons.fullscreen,
+                    onPressed: _toggleFullScreen,
+                    highlight: _selectedControlIndex == 7,
+                    tooltip: 'Fullscreen',
+                    size: iconSize,
+                  ),
+                ],
               ),
             ],
           ),
@@ -2085,56 +3968,77 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
   }
 
   Widget _buildDownloadIndicator() {
-    return Positioned(
-      top: 100,
-      right: 20,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.8),
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.3),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
+    return Center();
+  }
+
+  void _showServerListDialog() {
+    final isLargeScreen = _screenWidth > 800;
+    final dialogWidth = isLargeScreen ? 400.0 : (_isTablet ? 350.0 : 300.0);
+    final titleSize = isLargeScreen ? 22.0 : (_isTablet ? 20.0 : 18.0);
+    final itemSize = isLargeScreen ? 18.0 : (_isTablet ? 16.0 : 14.0);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(isLargeScreen ? 20 : 16),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(
-              value: _downloadProgress > 0 ? _downloadProgress : null,
-              valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _downloadProgress > 0
-                  ? 'Downloading ${(_downloadProgress * 100).toStringAsFixed(1)}%'
-                  : 'Preparing download...',
-              style: const TextStyle(color: Colors.white, fontSize: 13),
-            ),
-            const SizedBox(height: 8),
-            if (_isDownloading)
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.redAccent,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  textStyle: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.bold),
+        title: Text('Select Server',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: titleSize,
+              fontWeight: FontWeight.bold,
+            )),
+        content: Container(
+          width: dialogWidth,
+          constraints: BoxConstraints(
+            maxHeight: isLargeScreen ? 400.0 : (_isTablet ? 350.0 : 300.0),
+          ),
+          child: _serversList.isEmpty
+              ? const Center(
+                  child: Text(
+                    'No servers available.',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                )
+              : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: _serversList.length,
+                  itemBuilder: (context, index) {
+                    final server = _serversList[index];
+                    final isVkPrimeServer = server.contains('vkprime');
+                    final isCurrent = _currentServerIndex == index &&
+                        _isPlayerInitialized &&
+                        _videoPlayerController.value.isInitialized &&
+                        !_isLoading;
+
+                    return ListTile(
+                      title: Text(
+                        isVkPrimeServer
+                            ? 'Premium Video (vkprime)'
+                            : 'Server ${index + 1}',
+                        style: TextStyle(
+                          color: isCurrent ? Colors.blue : Colors.white,
+                          fontSize: itemSize,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      leading: isCurrent
+                          ? Icon(Icons.check,
+                              color: Colors.blue, size: isLargeScreen ? 28 : 24)
+                          : SizedBox(width: isLargeScreen ? 28 : 24),
+                      onTap: () {
+                        Navigator.pop(context);
+                        _resolveServer(index);
+                      },
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: isLargeScreen ? 16 : 12,
+                        vertical: isLargeScreen ? 8 : 4,
+                      ),
+                    );
+                  },
                 ),
-                onPressed: () {
-                  _downloadCancelToken?.cancel();
-                },
-                icon: const Icon(Icons.cancel, size: 18),
-                label: const Text('Cancel'),
-              ),
-          ],
         ),
       ),
     );
@@ -2201,7 +4105,7 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
                                 fontWeight: FontWeight.w500,
                               )),
                           subtitle: Text(
-                              '${_videoPlayerController.value.playbackSpeed}x',
+                              '${_isPlayerInitialized ? _videoPlayerController.value.playbackSpeed : 1.0}x',
                               style: TextStyle(
                                   color: Colors.white70,
                                   fontSize: isLargeScreen ? 16 : 14)),
@@ -2332,12 +4236,15 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
                       fontSize: itemSize,
                       fontWeight: FontWeight.w500,
                     )),
-                leading: _videoPlayerController.value.playbackSpeed == speed
+                leading: (_isPlayerInitialized &&
+                        _videoPlayerController.value.playbackSpeed == speed)
                     ? Icon(Icons.check,
                         color: Colors.blue, size: isLargeScreen ? 28 : 24)
                     : SizedBox(width: isLargeScreen ? 28 : 24),
                 onTap: () {
-                  _videoPlayerController.setPlaybackSpeed(speed);
+                  if (_isPlayerInitialized) {
+                    _videoPlayerController.setPlaybackSpeed(speed);
+                  }
                   Navigator.pop(context);
                   Navigator.pop(context);
                 },
@@ -2384,7 +4291,7 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                _buildInfoRow('URL', widget.videoUrl, labelSize, valueSize),
+                _buildInfoRow('URL', widget.videoUrl!, labelSize, valueSize),
                 if (widget.authToken != null)
                   _buildVideoInfoRow(
                       'Token',
@@ -2412,7 +4319,8 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
                           : widget.cookies!,
                       labelSize,
                       valueSize),
-                if (_videoPlayerController.value.isInitialized) ...[
+                if (_isPlayerInitialized &&
+                    _videoPlayerController.value.isInitialized) ...[
                   SizedBox(height: isLargeScreen ? 20 : 16),
                   Text('Video Properties:',
                       style: TextStyle(
@@ -2536,7 +4444,11 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
       },
       {'label': '16:9', 'value': 16 / 9},
       {'label': '4:3', 'value': 4 / 3},
-      {'label': 'Original', 'value': _videoPlayerController.value.aspectRatio},
+      if (_isPlayerInitialized)
+        {
+          'label': 'Original',
+          'value': _videoPlayerController.value.aspectRatio
+        },
     ];
 
     final isLargeScreen = _screenWidth > 800;
@@ -2807,9 +4719,9 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
                     ),
                   ),
                   const SizedBox(height: 20),
-                  const Text(
-                    'Loading Video...',
-                    style: TextStyle(
+                  Text(
+                    _statusText.isNotEmpty ? _statusText : 'Loading Video...',
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 18,
                       fontWeight: FontWeight.w600,
@@ -2862,6 +4774,94 @@ class _EnhancedVideoPlayerScreenState extends State<EnhancedVideoPlayerScreen>
             _lastDoubleTapDirection == -1 ? Icons.replay_10 : Icons.forward_10,
             color: Colors.white,
             size: _isTablet ? 56 : 48,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResumeProgressOverlay() {
+    if (!_showResumeOverlayWidget) return const SizedBox.shrink();
+    return Positioned(
+      bottom: _showControls ? 140 : 40,
+      left: 20,
+      right: 20,
+      child: Center(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.85),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.blue.withOpacity(0.5), width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.blue.withOpacity(0.2),
+                blurRadius: 15,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.history, color: Colors.blue, size: 24),
+              const SizedBox(width: 12),
+              const Flexible(
+                child: Text(
+                  'We resume your progress. Want to watch from starting?',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Focus(
+                focusNode: _startOverFocusNode,
+                onKeyEvent: (node, event) {
+                  if (event is KeyDownEvent) {
+                    if (event.logicalKey == LogicalKeyboardKey.select ||
+                        event.logicalKey == LogicalKeyboardKey.enter) {
+                      _handleStartOver();
+                      return KeyEventResult.handled;
+                    }
+                  }
+                  return KeyEventResult.ignored;
+                },
+                child: Builder(
+                  builder: (context) {
+                    final hasFocus = Focus.of(context).hasFocus;
+                    return ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: hasFocus ? Colors.white : Colors.blue,
+                        foregroundColor: hasFocus ? Colors.black : Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 8),
+                      ),
+                      onPressed: _handleStartOver,
+                      child: const Text(
+                        'Start Over',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                icon: const Icon(Icons.close, color: Colors.white70, size: 20),
+                onPressed: () {
+                  setState(() {
+                    _showResumeOverlayWidget = false;
+                  });
+                },
+              ),
+            ],
           ),
         ),
       ),
