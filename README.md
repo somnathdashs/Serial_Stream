@@ -141,15 +141,6 @@ flutter run
 - `test/` - Test files
 - Platform-specific directories (android/, ios/, web/, etc.)
 
-## Build Information
-
-- Flutter: 3.44.2 (channel stable)
-- Target Android SDK: 35
-- Minimum Android SDK: 23
-- Kotlin version: 1.9.22
-- Gradle plugin: 8.2.0
-- NDK version: 28.1.13356709
-
 ## Future Development
 
 We are working on:
